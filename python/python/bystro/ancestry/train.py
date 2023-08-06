@@ -15,7 +15,7 @@ import logging
 import random
 import sys
 from collections import Counter
-from collections.abc import Collection, Container, Iterable, Sequence
+from collections.abc import Collection, Container, Iterable
 from pathlib import Path
 from typing import Any, Literal, TypeVar, get_args
 
@@ -31,7 +31,7 @@ from sklearn.model_selection import train_test_split
 from skops.io import dump as skops_dump
 
 from bystro.ancestry.asserts import assert_equals, assert_true
-from bystro.ancestry.train_utils import get_variant_ids_from_callset, head, is_autosomal_variant
+from bystro.ancestry.train_utils import get_variant_ids_from_callset, head
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -57,6 +57,10 @@ RFC_TRAIN_ACCURACY_THRESHOLD = 0.9
 RFC_TEST_ACCURACY_THRESHOLD = 0.75
 RFC_TRAIN_SUPERPOP_ACCURACY_THRESHOLD = 0.99
 RFC_TEST_SUPERPOP_ACCURACY_THRESHOLD = 0.99
+
+VCF_METADATA_COLUMNS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
+FILTER_FIELD_IDX = VCF_METADATA_COLUMNS.index("FILTER")
+NUM_VCF_METADATA_COLUMNS = len(VCF_METADATA_COLUMNS)
 
 # superpop definitions taken from ensembl
 SUPERPOP_FROM_POP = {
@@ -126,7 +130,7 @@ def load_callset_for_variants(variants: set[str]) -> pd.DataFrame:
     for chromosome in range(1, 22 + 1):
         logger.info("starting on chromosome: %s", chromosome)
         file_path = str(KGP_VCF_DIR / file_template.format(chromosome))
-        genotype_df = _parse_vcf(file_path, variants)
+        genotype_df = parse_vcf(file_path, variants)
         logger.info("got genotype_df of shape: %s", genotype_df.shape)
         genotype_dfs.append(genotype_df)
     return pd.concat(genotype_dfs, axis=1)
@@ -135,13 +139,14 @@ def load_callset_for_variants(variants: set[str]) -> pd.DataFrame:
 def _parse_vcf_line_for_dosages(
     line: str, variants_to_keep: Container[Variant]
 ) -> tuple[Variant, list[int]] | None:
-    # will throw ValueError if "PASS" not found, which is good
-    fields = line[: line.index("PASS")].split()
+    fields = line.split()
+    if fields[FILTER_FIELD_IDX] not in ["PASS", "."]:
+        return None
     variant = ":".join([fields[0], fields[1], fields[3], fields[4]])
-    assert_true("variant is a valid variant string", is_autosomal_variant(variant))
+    variant = variant if variant.startswith("chr") else "chr" + variant
     if variant in variants_to_keep:
         variant_dosages = [
-            int(psa[0]) + int(psa[2]) for psa in line.split()[9:]
+            int(psa[0]) + int(psa[2]) for psa in fields[NUM_VCF_METADATA_COLUMNS:]
         ]  #  pipe-separated annotation e.g. '0|1'
         return variant, variant_dosages
     return None
@@ -170,13 +175,30 @@ def _calculate_recovery_rate(
     return len(found_variants) / len(relevant_variants_to_keep)
 
 
-def _parse_vcf(file_path: str, variants_to_keep: Collection[str]) -> pd.DataFrame:
-    with gzip.open(file_path, "rt") as f:
-        return _parse_vcf_from_file_stream(f, variants_to_keep)
+def parse_vcf(
+    vcf_fpath: str | Path, variants_to_keep: Collection[str], *, return_exact_variants: bool = False
+) -> pd.DataFrame:
+    """Parse vcf_fpath for selected variants, returning dosage matrix as DataFrame."""
+    with gzip.open(vcf_fpath, "rt") as f:
+        return _parse_vcf_from_file_stream(
+            f, variants_to_keep, return_exact_variants=return_exact_variants
+        )
+
+
+def _check_fields_for_metadata_columns(fields: list[str]) -> None:
+    """Assert that VCF contains expected metadata columns."""
+    metadata_fields = fields[:NUM_VCF_METADATA_COLUMNS]
+    if metadata_fields != VCF_METADATA_COLUMNS:
+        err_msg = (
+            "vcf does not contain expected metadata columns.  "
+            f"Expected: {VCF_METADATA_COLUMNS}, "
+            f"got: {metadata_fields} instead."
+        )
+        raise ValueError(err_msg)
 
 
 def _parse_vcf_from_file_stream(
-    file_stream: Iterable[str], variants_to_keep: Collection[str]
+    file_stream: Iterable[str], variants_to_keep: Collection[str], *, return_exact_variants: bool
 ) -> pd.DataFrame:
     found_variants = []
     dosage_data = []
@@ -187,7 +209,9 @@ def _parse_vcf_from_file_stream(
         if line.startswith("##"):
             continue
         if line.startswith("#CHROM"):
-            sample_ids = line.split()[9:]
+            fields = line.lstrip("#").split()
+            _check_fields_for_metadata_columns(fields)
+            sample_ids = fields[NUM_VCF_METADATA_COLUMNS:]
         elif variant_dosages := _parse_vcf_line_for_dosages(line, variants_to_keep):
             variant, dosages = variant_dosages
             found_variants.append(variant)
@@ -195,21 +219,39 @@ def _parse_vcf_from_file_stream(
         else:
             continue
     if sample_ids is None:
-        msg = "Couldn't find sample ids in VCF"
-        raise ValueError(msg)
+        msg = "Sample ids not set during VCF processing: does your VCF contain a valid header?"
+        raise AssertionError(msg)
     found_chromosomes = {_get_chromosome_from_variant(v) for v in found_variants}
-    assert_true("Extracted sample_ids from vcf", sample_ids is not None)
     logger.info(
         "processed %s lines, retaining %s variants from %s chromosomes",
         total_lines,
         len(found_variants),
         len(found_chromosomes),
     )
-    df_values: np.ndarray | list[list[float]] = np.array(dosage_data).T if dosage_data else []
+    try:
+        df_values: np.ndarray | list[list[float]] = np.array(dosage_data).T if dosage_data else []
+        logger.info(df_values)
+    except ValueError as val_err:
+        err_msg = (
+            "Couldn't convert dosage data to np.array, "
+            "do all genotype rows have the same number of fields?"
+        )
+        raise ValueError(err_msg) from val_err
     dosage_df = pd.DataFrame(df_values, index=sample_ids, columns=found_variants)
     # we assume each vcf file contains variants for a single chromosome
     recovery_rate = _calculate_recovery_rate(found_variants, variants_to_keep)
     logger.info("recovery rate: %s", recovery_rate)
+
+    if return_exact_variants:
+        missing_variants = set(variants_to_keep) - set(found_variants)
+        logger.info("adding NaNs for %s variants not found in VCF", len(missing_variants))
+        missing_dosages = pd.DataFrame(
+            np.nan * np.ones((len(dosage_df), len(missing_variants))),
+            index=dosage_df.index,
+            columns=list(missing_variants),
+        )
+        dosage_df = pd.concat([dosage_df, missing_dosages], axis="columns")
+
     return dosage_df
 
 
@@ -285,13 +327,19 @@ def filter_samples_for_relatedness(
 
 
 def _load_ancestry_df() -> pd.DataFrame:
-    return pd.read_csv(ANCESTRY_INFO_PATH, sep="\t")
+    ancestry_df = pd.read_csv(ANCESTRY_INFO_PATH, sep="\t", index_col=0)
+    assert_equals("number of rows", 3500, "actual number of rows", len(ancestry_df))
+    expected_samples = ["NA12865", "HG03930", "NA19171"]
+    assert_true(
+        "Index passes spot checks", all(sample in ancestry_df.index for sample in expected_samples)
+    )
+    return ancestry_df
 
 
 def load_label_data(samples: pd.Index) -> pd.DataFrame:
     """Load dataframe of population, superpop labels for samples."""
     ancestry_df = _load_ancestry_df()
-    missing_samples = set(samples) - set(ancestry_df["Sample"])
+    missing_samples = set(samples) - set(ancestry_df.index)
     if missing_samples:
         msg = f"Ancestry dataframe is missing samples: {missing_samples}"
         raise AssertionError(msg)
@@ -302,7 +350,7 @@ def load_label_data(samples: pd.Index) -> pd.DataFrame:
             f"expected {EXPECTED_NUM_POPULATIONS}"
         )
         raise ValueError(msg)
-    get_pop_from_sample = ancestry_df.set_index("Sample")["Population"].to_dict()
+    get_pop_from_sample = ancestry_df["Population"].to_dict()
     labels = pd.DataFrame(
         [get_pop_from_sample[s] for s in samples],
         index=samples,
@@ -585,13 +633,15 @@ def make_rfc(
     return rfc
 
 
-def superpop_probs_from_pop_probs(pop_probs: np.ndarray) -> np.ndarray:
+def superpop_probs_from_pop_probs(pop_probs: pd.DataFrame) -> pd.DataFrame:
     """Given a matrix of population probabilities, convert to matrix of superpop probabilities."""
     N = len(pop_probs)
     pops = sorted(SUPERPOP_FROM_POP.keys())
     superpops = sorted(set(SUPERPOP_FROM_POP.values()))
-    superpop_projection_matrix = np.array(
-        [[int(superpop == SUPERPOP_FROM_POP[pop]) for superpop in superpops] for pop in pops]
+    superpop_projection_matrix = pd.DataFrame(
+        np.array([[int(superpop == SUPERPOP_FROM_POP[pop]) for superpop in superpops] for pop in pops]),
+        index=POPS,
+        columns=SUPERPOPS,
     )
     superpop_probs = pop_probs @ superpop_projection_matrix
     assert_equals(
@@ -603,7 +653,7 @@ def superpop_probs_from_pop_probs(pop_probs: np.ndarray) -> np.ndarray:
     return superpop_probs
 
 
-def superpop_predictions_from_pop_probs(pop_probs: np.ndarray) -> list[str]:
+def superpop_predictions_from_pop_probs(pop_probs: pd.DataFrame) -> list[str]:
     """Given a matrix of population probabilities, convert to superpop predictions."""
     superpops = sorted(set(SUPERPOP_FROM_POP.values()))
     superpop_probs = superpop_probs_from_pop_probs(pop_probs)
@@ -650,15 +700,11 @@ def _get_mi_df(train_X: pd.DataFrame, train_y_pop: pd.Series) -> pd.DataFrame:
     return mi_df
 
 
-def serialize_model_products(variants: Sequence[str], pca: PCA, rfc: RandomForestClassifier) -> None:
+def serialize_model_products(pca_df: pd.DataFrame, rfc: RandomForestClassifier) -> None:
     """Serialize variant list, pca and rfc to disk as .txt, .skops files."""
-    variants_fpath = ANCESTRY_MODEL_PRODUCTS_DIR / "variants.txt"
-    pca_fpath = ANCESTRY_MODEL_PRODUCTS_DIR / "pca.skop"
+    pca_fpath = ANCESTRY_MODEL_PRODUCTS_DIR / "pca.csv"
     rfc_fpath = ANCESTRY_MODEL_PRODUCTS_DIR / "rfc.skop"
-
-    with variants_fpath.open("w") as f:
-        f.write("\n".join(variants))
-    skops_dump(pca, pca_fpath)
+    pca_df.to_csv(pca_fpath)
     skops_dump(rfc, rfc_fpath)
 
 

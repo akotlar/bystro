@@ -7,4 +7,4 @@ develop:
 	cd python && maturin develop && cd ../
 
 serve-dev: develop
-	pm2 delete all 2> /dev/null || true && pm2 start startup.yml
+	pm2 delete all 2> /dev/null || true && ray stop && ray start --head && pm2 start startup.yml

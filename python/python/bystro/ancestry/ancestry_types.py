@@ -62,20 +62,17 @@ unit_float_validator = [
 class ProbabilityInterval:
     """Represent an interval of probabilities."""
 
-    lower_bound: float = field(validator=unit_float_validator)
-    upper_bound: float = field(
-        validator=[
-            instance_of(float),
-            attrs.validators.ge(0.0),
-            attrs.validators.le(1.0),
-        ]
-    )
+    # we need these to be literal floats for msgspec serialization, not numpy floats or anything else.
+    lower_bound: float = field(converter=float, validator=unit_float_validator)
+    upper_bound: float = field(converter=float, validator=unit_float_validator)
 
     def __attrs_post_init__(self) -> None:
         """Ensure interval is well-formed."""
         if self.lower_bound > self.upper_bound:
-            err_msg = f"""Lower bound must be less than or equal to upper bound.
-            Got: lower_bound={self.lower_bound}, upper_bound={self.upper_bound} instead."""
+            err_msg = (
+                f"Lower bound must be less than or equal to upper bound.  "
+                f"Got: lower_bound={self.lower_bound}, upper_bound={self.upper_bound} instead."
+            )
             raise ValueError(err_msg)
 
 
@@ -122,7 +119,6 @@ class PopulationVector:
     JPT: ProbabilityInterval = field(validator=ProbIntValidator)
     KHV: ProbabilityInterval = field(validator=ProbIntValidator)
     LWK: ProbabilityInterval = field(validator=ProbIntValidator)
-    MAG: ProbabilityInterval = field(validator=ProbIntValidator)
     MSL: ProbabilityInterval = field(validator=ProbIntValidator)
     MXL: ProbabilityInterval = field(validator=ProbIntValidator)
     PEL: ProbabilityInterval = field(validator=ProbIntValidator)
@@ -163,7 +159,8 @@ class AncestryResult:
     sample_id: str = field(validator=instance_of(str))
     populations: PopulationVector = field(validator=instance_of(PopulationVector))
     superpops: SuperpopVector = field(validator=instance_of(SuperpopVector))
-    missingness: float = field(validator=unit_float_validator)
+    # needs to be literal float for msgspec
+    missingness: float = field(converter=float, validator=unit_float_validator)
 
 
 @attrs.frozen(kw_only=True)
@@ -184,7 +181,10 @@ class AncestryResponse:
     ) -> None:
         for i, value in enumerate(results):
             if not isinstance(value, AncestryResult):
-                err_msg = f"Expecting list of AncestryResults, at position {i} got {value} instead"
+                err_msg = (
+                    f"Expecting list of AncestryResults,"
+                    f"at position {i} got {value} of type {type(value)} instead"
+                )
                 raise TypeError(err_msg)
         sample_ids = [result.sample_id for result in results]
         unique_sample_ids = set(sample_ids)
