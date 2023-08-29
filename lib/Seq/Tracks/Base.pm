@@ -18,7 +18,6 @@ use List::Util qw/first/;
 use Seq::Tracks::Base::MapTrackNames;
 use Seq::Tracks::Base::MapFieldNames;
 use Seq::DBManager;
-# use String::Util qw/trim/;
 
 # automatically imports TrackType
 use Seq::Tracks::Base::Types;

@@ -14,6 +14,7 @@ use MouseX::NativeTraits;
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
+use Sys::CpuAffinity;
 
 use Seq::DBManager;
 use Seq::Tracks::Build::CompletionMeta;
@@ -55,7 +56,9 @@ has commitEvery => (is => 'rw', isa => 'Int', lazy => 1, default => 2e4);
 # Change from b9: this now needs to be manually set, opt-in
 has chrPerFile => (is => 'ro', isa => 'Bool', default => 0);
 
-has maxThreads => (is => 'ro', isa => 'Int', lazy => 1, default => 8);
+has maxThreads => (is => 'ro', isa => 'Int', lazy => 1, default => sub {
+  return Sys::CpuAffinity::getNumCpus();
+});
 ########## Arguments taken from YAML config file or passed some other way ##############
 
 #################################### Required ###################################
@@ -451,7 +454,6 @@ sub makeMergeFunc {
     sub {
       my $chr = shift;
       $self->db->dbDropDatabase("$tempDbName/$chr", 1);
-
       say STDERR "Cleaned up $tempDbName/$chr";
     }
   );
