@@ -30,6 +30,8 @@ my $tracks = $seq->tracksObj;
 my $refTrackGetter = $tracks->getRefTrackGetter();
 my $trackGetter = $tracks->getTrackGetterByName($track);
 
+say "Track db index is " . $trackGetter->dbName;
+
 my $isRef;
 if($refTrackGetter eq $trackGetter) {
   $isRef = 1;

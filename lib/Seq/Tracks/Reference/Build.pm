@@ -20,6 +20,12 @@ use DDP;
 
 my $baseMapper = Seq::Tracks::Reference::MapBases->new();
 
+# ########## Arguments accepted ##############
+# UCSC hg19 p13 has both chrM and chrMT, where chrM is the original mitochondrial refernece
+# and chrMT is the new one. We want to skip chrM, but not chrMT, and rename chrMT to chrM to match hg38
+# which does not do this.
+has skipChromosomes => (is => 'ro', isa => 'ArrayRef', default => sub { [] });
+
 sub buildTrack {
   my $self = shift;
 
@@ -27,6 +33,8 @@ sub buildTrack {
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
   my $pm = Parallel::ForkManager->new($self->maxThreads);
+
+  my %skipChrs = map { $_ => 1 } @{$self->skipChromosomes};
 
   my %completedChrs;
   $pm->run_on_finish( sub {
@@ -87,6 +95,11 @@ sub buildTrack {
         #for now, let's assume that we put the CADD file into a wigfix format
         if ($line =~ m/$headerRegex/) { #we found a wig header
           my $chr = $1;
+
+          if ($skipChrs{$chr}) {
+            $self->log('info', $self->name . ": skipping $chr");
+            next FH_LOOP;
+          }
 
           if(!$chr) {
             $self->log('fatal', $self->name . ": Require chr in fasta file headers");

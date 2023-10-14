@@ -94,7 +94,10 @@ my $txNumberKey = 'txNumber';
 around BUILDARGS => sub {
   my($orig, $self, $data) = @_;
 
-  if(!defined $data->{local_files}) {
+  if(!defined $data->{local_files} || @{$data->{local_files}} == 0) {
+    if(!defined $data->{ref} || !$data->{ref}->local_files || !@{$data->{ref}->local_files}) {
+      $self->log('fatal', "Must provide either 'local_files' or 'ref' property that refers to an existing track with local_files.");
+    }
     # Careful with the reference
     $data->{local_files} = $data->{ref}->local_files;
   }
