@@ -3,17 +3,17 @@ import shutil
 
 
 def _get_gzip_program_path() -> str:
-    pigz = shutil.which("pigz")
+    bgzip = shutil.which("bgzip")
 
-    if pigz:
-        return pigz
+    if bgzip:
+        return bgzip
 
     gzip = shutil.which("gzip")
 
     if gzip:
         return gzip
 
-    raise OSError("Neither gzip nor pigz not found on system")
+    raise OSError("Neither gzip nor bgzip not found on system")
 
 
 GZIP_EXECUTABLE = _get_gzip_program_path()

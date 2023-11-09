@@ -229,7 +229,7 @@ sub _moveFilesToOutputDir {
   $self->log( 'info', "Moving output file to EFS or S3" );
 
   my $workDir = $self->_workingDir->stringify();
-
+  say STDERR 'moving';
   $err = $self->safeSystem("mv $workDir/* $outDir && chmod a+r $outDir/*; sync");
 
   return $err;

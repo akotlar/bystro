@@ -41,7 +41,7 @@ has delimiter => (
 );
 
 my $tar  = which('tar');
-my $gzip = which('bgzip') || which('pigz') || which('gzip');
+my $gzip = which('bgzip');
 my $lz4  = which('lz4');
 
 # Without this, pigz -d -c issues many system calls (futex)
@@ -50,17 +50,10 @@ my $lz4  = which('lz4');
 # So disable mutli-threading
 # For compression, tradeoff still worth it
 my $gzipDcmpArgs = '-d -c';
-if ( $gzip =~ /pigz/ ) {
-  $gzipDcmpArgs = "-p 1 $gzipDcmpArgs";
-}
-elsif ( $gzip =~ /bgzip/ ) {
-  $gzipDcmpArgs = "--threads " . Sys::CpuAffinity::getNumCpus() . " $gzipDcmpArgs";
-}
+$gzipDcmpArgs = "--threads " . Sys::CpuAffinity::getNumCpus() . " $gzipDcmpArgs";
 
 my $gzipCmpArgs = '-c';
-if ( $gzip =~ /bgzip/ ) {
-  $gzipCmpArgs = "--threads " . Sys::CpuAffinity::getNumCpus();
-}
+$gzipCmpArgs = "--threads " . Sys::CpuAffinity::getNumCpus();
 
 my $tarCompressedGzip = "$tar --use-compress-program=$gzip";
 my $tarCompressedLZ4  = "$tar --use-compress-program=$lz4";
@@ -258,7 +251,13 @@ sub getWriteFh {
       $err = $self->safeOpen( $fh, "|-", "$lz4 -c > $file", $errCode );
     }
     else {
-      $err = $self->safeOpen( $fh, "|-", "$gzip $gzipCmpArgs > $file", $errCode );
+      if($gzip =~ /bgzip/) {
+        # say STDERR path($file)-> ;
+        $err = $self->safeOpen( $fh, "|-", "$gzip --index --index-name $file.gzi $gzipCmpArgs > $file", $errCode );
+      } else {
+        $err = $self->safeOpen( $fh, "|-", "$gzip $gzipCmpArgs > $file", $errCode );
+      }
+      
     }
 
   }

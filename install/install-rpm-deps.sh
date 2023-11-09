@@ -2,13 +2,16 @@
 
 echo -e "\n\nInstalling Debian (rpm) dependencies\n";
 
+sudo yum install epel-release;
+sudo yum update;
+
 sudo yum install gcc -y;
 sudo yum install openssl -y;
 sudo yum install openssl-devel -y;
 # Not strictly necessary, useful however for much of what we do
 sudo yum install git-all -y;
-# pigz for Bystro, used to speed up decompression primarily
-sudo yum install pigz -y;
+
+sudo yum install htslib -y;
 sudo yum install unzip -y;
 sudo yum install wget -y;
 # For tests involving querying ucsc directly

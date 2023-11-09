@@ -9,7 +9,7 @@ sudo apt install -y build-essential;
 sudo apt install -y git-all;
 # pigz for Bystro, used to speed up decompression primarily
 
-sudo apt install -y pigz;
+sudo apt install -y tabix;
 sudo apt install -y unzip;
 sudo apt install -y wget;
 # For Search::Elasticsearch::Client::5_0::Direct
