@@ -64,7 +64,7 @@ async def go(
     search_conf: dict,
     tar_path: str,
     chunk_size=500,
-    paralleleism_chunk_size=5_000,
+    paralleleism_chunk_size=500,
     publisher: ProgressPublisher | None = None,
 ) -> list[str]:
     """Main handler for indexing Bystro annotation data into OpenSearch
@@ -84,76 +84,79 @@ async def go(
     Returns:
         _type_: _description_
     """
-    reporter = get_progress_reporter(publisher)
+    try:
+        reporter = get_progress_reporter(publisher)
 
-    search_client_args = gather_opensearch_args(search_conf)
-    client = AsyncOpenSearch(**search_client_args)
+        search_client_args = gather_opensearch_args(search_conf)
+        client = AsyncOpenSearch(**search_client_args)
 
-    post_index_settings = mapping_conf["post_index_settings"]
+        post_index_settings = mapping_conf["post_index_settings"]
 
-    index_body: dict[str, dict] = {
-        "settings": mapping_conf["index_settings"],
-        "mappings": mapping_conf["mappings"],
-    }
+        index_body: dict[str, dict] = {
+            "settings": mapping_conf["index_settings"],
+            "mappings": mapping_conf["mappings"],
+        }
 
-    if not index_body["settings"].get("number_of_shards"):
-        file_size = os.path.getsize(tar_path)
-        index_body["settings"]["number_of_shards"] = ceil(
-            float(file_size) / float(1e10)
+        if not index_body["settings"].get("number_of_shards"):
+            file_size = os.path.getsize(tar_path)
+            index_body["settings"]["number_of_shards"] = ceil(
+                float(file_size) / float(1e10)
+            )
+
+        try:
+            await client.indices.create(index_name, body=index_body)
+        except Exception as e:
+            print(e)
+
+        data = read_annotation_tarball(
+            index_name=index_name,
+            tar_path=tar_path,
+            delimiters=DelimitersConfig(),
+            chunk_size=paralleleism_chunk_size,
         )
 
-    try:
-        await client.indices.create(index_name, body=index_body)
+        start = time.time()
+        indexers = [Indexer.remote(search_client_args, reporter, chunk_size) for _ in range(n_threads)]  # type: ignore  # noqa: E501
+        actor_idx = 0
+        results = []
+        for x in data:
+            "Round robin work distribution"
+            indexer = indexers[actor_idx]
+            actor_idx += 1
+            if actor_idx == n_threads:
+                actor_idx = 0
+            results.append(indexer.index.remote(x))
+        res = ray.get(results)
+
+        reported_count: int = ray.get(reporter.get_counter.remote())  # type: ignore
+
+        errors = []
+        total = 0
+        for indexed_count, errors in res:
+            total += indexed_count
+            if errors:
+                errors.append(",".join(errors))
+
+        if errors:
+            raise RuntimeError("\n".join(errors))
+
+        to_report_count = total - reported_count
+        if to_report_count > 0:
+            await asyncio.to_thread(reporter.increment.remote, to_report_count)  # type: ignore
+
+        print(f"Processed {total} records in {time.time() - start}s")
+
+        for indexer in indexers:
+            await indexer.close.remote()
+
+        await client.indices.put_settings(index=index_name, body=post_index_settings)
+        await client.indices.refresh(index=index_name)
+
+        await client.close()
+        return data.get_header_fields()
     except Exception as e:
         print(e)
-
-    data = read_annotation_tarball(
-        index_name=index_name,
-        tar_path=tar_path,
-        delimiters=DelimitersConfig(),
-        chunk_size=paralleleism_chunk_size,
-    )
-
-    start = time.time()
-    indexers = [Indexer.remote(search_client_args, reporter, chunk_size) for _ in range(n_threads)]  # type: ignore  # noqa: E501
-    actor_idx = 0
-    results = []
-    for x in data:
-        "Round robin work distribution"
-        indexer = indexers[actor_idx]
-        actor_idx += 1
-        if actor_idx == n_threads:
-            actor_idx = 0
-        results.append(indexer.index.remote(x))
-    res = ray.get(results)
-
-    reported_count: int = ray.get(reporter.get_counter.remote())  # type: ignore
-
-    errors = []
-    total = 0
-    for indexed_count, errors in res:
-        total += indexed_count
-        if errors:
-            errors.append(",".join(errors))
-
-    if errors:
-        raise RuntimeError("\n".join(errors))
-
-    to_report_count = total - reported_count
-    if to_report_count > 0:
-        await asyncio.to_thread(reporter.increment.remote, to_report_count)  # type: ignore
-
-    print(f"Processed {total} records in {time.time() - start}s")
-
-    for indexer in indexers:
-        await indexer.close.remote()
-
-    await client.indices.put_settings(index=index_name, body=post_index_settings)
-    await client.indices.refresh(index=index_name)
-
-    await client.close()
-
-    return data.get_header_fields()
+        raise RuntimeError("Something went wrong")
 
 
 if __name__ == "__main__":
