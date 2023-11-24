@@ -1,0 +1,23 @@
+[package]
+name = "index_annotation"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+bumpalo = { version = "3.14.0", features = ["collections"] }
+tar = "0.4.38"
+serde_json = "1.0.108"
+rayon = "1.8.0"
+crossbeam = "0.8.2"
+num_cpus = "1.16.0"
+termcolor = "1.4.0"
+grep-cli = "0.1.9"
+serde = { version = "1.0.108", features = ["derive"] }
+noodles-bgzf = { version = "0.25.0", features = ["libdeflate"] }
+smallvec = "1.6.1"
+tinyvec = { version = "1.6.0", features = ["alloc"] }
+rkyv = "0.7.42"
+async-channel = "2.1.0"

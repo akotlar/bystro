@@ -1,11 +1,11 @@
 // TODO: replace panics with proper error handling
 // TODO: Cache genotypes
+use crossbeam::channel::bounded;
+use crossbeam::thread as cthread;
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
-
-use crossbeam::channel::bounded;
-use crossbeam::thread as cthread;
+use std::io::Read;
 
 use atoi::FromRadix10;
 use itoa;
@@ -19,12 +19,12 @@ extern crate log;
 
 const CHROM_IDX: usize = 0;
 const POS_IDX: usize = 1;
-// const ID_IDX: usize = 2;
+const ID_IDX: usize = 2;
 const REF_IDX: usize = 3;
 const ALT_IDX: usize = 4;
-// const QUAL_IDX: usize = 5;
+const QUAL_IDX: usize = 5;
 const FILTER_IDX: usize = 6;
-// const INFO_IDX: usize = 7;
+const INFO_IDX: usize = 7;
 const FORMAT_IDX: usize = 8;
 
 const NOT_TSTV: u8 = b'0';
@@ -111,6 +111,7 @@ fn snp_is_valid(alt: u8) -> bool {
 }
 
 fn alt_is_valid(alt: &[u8]) -> bool {
+    // println!("{:?}", String::from_utf8_lossy(alt));
     if !snp_is_valid(alt[0]) {
         return false;
     }
@@ -721,12 +722,41 @@ fn append_hom_het_multi<'a>(
     }
 }
 
+fn process_row(row: &[u8]) {
+    let mut alleles = SiteEnum::None;
+    let mut alt: &[u8];
+    let mut alleles: SiteEnum;
+    let mut refr: &[u8];
+    let mut pos: &[u8];
+    let mut chrom: &[u8];
+
+    for (idx, field) in row.split(|byt| *byt == b'\t').enumerate() {
+        match idx {
+            CHROM_IDX => chrom = field,
+            POS_IDX => pos = field,
+            REF_IDX => refr = field,
+            ALT_IDX => alt = field,
+            FILTER_IDX => {
+                if !filter_passes(field) {
+                    break;
+                }
+                alleles = get_alleles(pos, refr, alt);
+                if n_samples == 0 {
+                    break;
+                }
+                // Other filter index related logic...
+            }
+            FORMAT_IDX => {
+                // Format index related logic...
+            }
+            _ if idx > FORMAT_IDX => process_genotype(field, idx, &alleles),
+            _ => {}
+        }
+    }
+}
+
 #[allow(clippy::cognitive_complexity)]
-fn process_lines(
-    r: crossbeam::channel::Receiver<std::vec::Vec<std::vec::Vec<u8>>>,
-    n_samples: u32,
-    header: &Header,
-) {
+fn process_lines(r: crossbeam::channel::Receiver<Vec<u8>>, n_samples: u32, header: &Header) {
     let mut buffer = Vec::with_capacity(100_000);
     let mut homs: Vec<Vec<u32>> = Vec::with_capacity(100_000);
     let mut hets: Vec<Vec<u32>> = Vec::with_capacity(100_000);
@@ -767,8 +797,10 @@ fn process_lines(
                 let mut pos: &[u8] = b"";
                 let mut chrom: &[u8] = b"";
 
+                let lines = message.split(|byt| *byt == b'\n');
                 // let rows = &message;
-                'row_loop: for row in &message {
+                'row_loop: for row in lines {
+                    // println!("ROW: {:?}", String::from_utf8_lossy(row));
                     alleles = SiteEnum::None;
                     // let mut gq_pos: Option<usize> = None;
 
@@ -1182,32 +1214,167 @@ fn main() -> Result<(), io::Error> {
     cthread::scope(|scope| {
         scope.spawn(move |_| {
             let max_lines = 48;
-            let mut len;
-            let mut lines: Vec<Vec<u8>> = Vec::with_capacity(max_lines);
             let stdin = File::open("/dev/stdin").unwrap();
-            let size = stdin.metadata().unwrap().len() as usize;
-            let mut reader = std::io::BufReader::with_capacity(32 * 1024 * 1024, stdin);
-            let mut buf = Vec::with_capacity(size);
+            // let size : File= stdin.metadata().unwrap().len() as usize;
+            let mut reader = std::io::BufReader::with_capacity(128 * 1024 * 1024, stdin);
+            let chunk_size = 128 * 1024 * 1024; // 200 MB
+            let mut chunk = Vec::with_capacity(chunk_size);
+
             loop {
-                // https://stackoverflow.com/questions/43028653/rust-file-i-o-is-very-slow-compared-with-c-is-something-wrong
-                len = reader.read_until(b'\n', &mut buf).unwrap();
+                let buffer = reader.fill_buf().unwrap();
+                let buffer_len = buffer.len();
 
-                if len == 0 {
-                    if lines.len() > 0 {
-                        s1.send(lines).unwrap();
+                if buffer_len == 0 {
+                    break; // End of file
+                }
+
+                let end_with_newline = buffer[buffer.len() - 1] == b'\n';
+
+                // Copy the buffer to the chunk
+                chunk.extend_from_slice(buffer);
+
+                // Consume the buffer
+                reader.consume(buffer_len);
+
+                // If the buffer does not end with a newline, continue reading byte-by-byte
+                if !end_with_newline {
+                    let mut buf = Vec::new();
+                    let len = reader.read_until(b'\n', &mut buf).unwrap();
+
+                    if len > 0 {
+                        chunk.extend_from_slice(buf.as_slice());
                     }
-                    break;
+                    // len = reader.read_until(b'\n', &mut buf).unwrap();
+                    // let mut temp_buf = [0u8; 1];
+                    // loop {
+                    //     match reader.read(&mut temp_buf) {
+                    //         Ok(0) | Err(_) => break, // End of stream or error
+                    //         Ok(_) => {
+                    //             let byte = temp_buf[0];
+                    //             chunk.push(byte);
+
+                    //             if byte == b'\n' {
+                    //                 break;
+                    //             }
+                    //         }
+                    //     }
+                    // }
                 }
 
-                // Faster than collecting into buf and then splitting in the thread
-                lines.push(buf[..len - n_eol_chars].to_vec());
-                buf.clear();
+                // Process the chunk here
+                // ...
+                // println!("CHUNK: {:?}", chunk.split(|byt| *byt == b'\n').count());
+                s1.send(chunk.clone()).unwrap();
 
-                if lines.len() == max_lines {
-                    s1.send(lines).unwrap();
-                    lines = Vec::with_capacity(max_lines);
-                }
+                // for line in chunk.split(|byt| *byt == b'\n') {
+                //     // println!("LINE: {:?}", String::from_utf8(line.to_vec()))
+                //     // lines.push(line.to_vec());
+                //     // if lines.len() == max_lines {
+                //     //     s1.send(lines).unwrap();
+                //     //     lines = Vec::with_capacity(max_lines);
+                //     // }
+                // }
+                // Clear the chunk for the next iteration
+                chunk.clear();
             }
+
+            // // Handle any remaining data in the chunk after the loop
+            if !chunk.is_empty() {
+                s1.send(chunk.clone()).unwrap();
+                chunk.clear();
+                //     // Process the remaining data in the chunk
+                //     // ...
+                //     println!("CHUNK: {:?}", chunk.split(|byt| *byt == b'\n').count());
+            }
+
+            // loop {
+            //     let buffer = reader.fill_buf().unwrap();
+
+            //     if buffer.is_empty() {
+            //         break; // End of file
+            //     }
+
+            //     let mut end_with_newline = buffer[buffer.len() - 1] == b'\n';
+
+            //     // Copy buffer to chunk or process it directly
+            //     // ...
+
+            //     if !end_with_newline {
+            //         // Look for the newline character in the remaining data
+            //         for byte in buffer.iter() {
+            //             if *byte == b'\n' {
+            //                 end_with_newline = true;
+            //                 break;
+            //             }
+            //         }
+            //     }
+
+            //     let consumed = if end_with_newline {
+            //         buffer.len()
+            //     } else {
+            //         buffer.len() - 1 // Leave the last byte for the next iteration
+            //     };
+
+            //     // Tell the reader how much we've used
+            //     reader.consume(consumed);
+
+            //     // Process the chunk or buffer
+            //     // ...
+            // }
+
+            // let chunk_size = 200 * 1024 * 1024; // 200 MB
+            // let mut chunk = vec![0; chunk_size];
+            // loop {
+            //     let buffer = reader.fill_buf().unwrap();
+            //     // let mut len = reader.read(&mut chunk).unwrap();
+
+            //     if buffer.len() == 0 {
+            //         break; // End of file
+            //     }
+
+            //     // Ensure we end with a newline character
+            //     if buffer[buffer.len() - 1] != b'\n' {
+            //         let mut extra_bytes = vec![];
+            //         for byte in reader.bytes() {
+            //             match byte {
+            //                 Err(_) => break,
+            //                 Ok(b'\n') => {
+            //                     extra_bytes.push(b'\n');
+            //                     break;
+            //                 }
+            //                 Ok(b) => extra_bytes.push(b),
+            //             }
+            //         }
+            //         // len += extra_bytes.len();
+            //         chunk = [&buffer, &extra_bytes[..extra_bytes.len()]].concat();
+            //     }
+
+            //     // s1.send(chunk).unwrap();
+
+            //     // Process the chunk
+            //     // Note: You can use &chunk[..len] to get the slice containing valid data
+            //     // Replace this comment with your processing logic
+            // }
+            // loop {
+            //     // https://stackoverflow.com/questions/43028653/rust-file-i-o-is-very-slow-compared-with-c-is-something-wrong
+            //     len = reader.read_until(b'\n', &mut buf).unwrap();
+
+            //     if len == 0 {
+            //         if lines.len() > 0 {
+            //             s1.send(lines).unwrap();
+            //         }
+            //         break;
+            //     }
+
+            //     // Faster than collecting into buf and then splitting in the thread
+            //     lines.push(buf[..len - n_eol_chars].to_vec());
+            //     buf.clear();
+
+            //     if lines.len() == max_lines {
+            //         s1.send(lines).unwrap();
+            //         lines = Vec::with_capacity(max_lines);
+            //     }
+            // }
             // force the receivers to close as well
             drop(s1);
         });
