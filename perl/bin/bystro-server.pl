@@ -27,19 +27,18 @@ use YAML::XS qw/LoadFile/;
 use Seq;
 use Path::Tiny qw/path/;
 
-my ( $verbose, $queueConfigPath, $connectionConfigPath, $maxThreads, $debug );
+my ( $verbose, $queueConfigPath, $maxThreads, $debug );
 
 GetOptions(
   'v|verbose=i'          => \$verbose,
   'd|debug'              => \$debug,
   'q|queueConfig=s'      => \$queueConfigPath,
-  'c|connectionConfig=s' => \$connectionConfigPath,
   'maxThreads=i'         => \$maxThreads,
 );
 
-if ( !($queueConfigPath && $connectionConfigPath) ) {
+if ( !($queueConfigPath) ) {
   # Generate a help strings that shows the arguments
-  say "\nUsage: perl $0 -q <queueConfigPath> -c <connectionConfigPath> --maxThreads <maxThreads>\n";
+  say "\nUsage: perl $0 -q <queueConfigPath> --maxThreads <maxThreads>\n";
   exit 1;
 }
 

@@ -3,7 +3,6 @@
     and indexes submitted data in Opensearch
 """
 import argparse
-import asyncio
 import os
 import subprocess
 
