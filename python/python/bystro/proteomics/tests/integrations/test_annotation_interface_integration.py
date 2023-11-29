@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 
@@ -10,7 +9,6 @@ from bystro.utils.config import (
     BYSTRO_PROJECT_ROOT,
     BYSTRO_CONFIG_DIR,
     OPENSEARCH_CONFIG_PATH,
-    get_mapping_config,
     get_opensearch_config,
     ReferenceGenome,
 )
@@ -39,7 +37,13 @@ def index_test_annotation_file(index_name: str) -> None:
         BYSTRO_PROJECT_ROOT / "python/python/bystro/proteomics/tests/integrations/trio_trim_vep_vcf.tar"
     )
     assert tar_path.exists()
-    run_handler_with_config(index_name=index_name, mapping_config=mapping_config, opensearch_config=OPENSEARCH_CONFIG_PATH, tar_path = str(tar_path), no_queue=True)
+    run_handler_with_config(
+        index_name=index_name,
+        mapping_config=mapping_config,
+        opensearch_config=str(OPENSEARCH_CONFIG_PATH),
+        tar_path=str(tar_path),
+        no_queue=True,
+    )
     # after uploading, some additional time is required on the annotator's end before the results
     # are available to query.  Pause here for a few seconds in order to avoid prematurely querying
     # the annotation file.  This workaround should become obsolete with the deployment of
