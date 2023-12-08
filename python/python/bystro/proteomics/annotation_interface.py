@@ -9,11 +9,12 @@ import pandas as pd
 from opensearchpy import OpenSearch
 
 from bystro.utils.config import get_opensearch_config
+from bystro.search.utils.opensearch import gather_opensearch_args
 from bystro.proteomics.fragpipe_tandem_mass_tag import TandemMassTagDataset
 
 logger = logging.getLogger(__file__)
 
-OPENSEARCH_CONFIG = get_opensearch_config()
+OPENSEARCH_CONFIG = gather_opensearch_args(get_opensearch_config())
 HETEROZYGOTE_DOSAGE = 1
 HOMOZYGOTE_DOSAGE = 2
 MISSING_GENO_DOSAGE = np.nan
@@ -73,7 +74,7 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
         for heterozygote in heterozygotes:
             rows.append(
                 {
-                    "sample_id": heterozygote,
+                    "sample_id": str(heterozygote),
                     "chrom": chrom,
                     "pos": pos,
                     "ref": ref,
@@ -85,7 +86,7 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
         for homozygote in homozygotes:
             rows.append(
                 {
-                    "sample_id": homozygote,
+                    "sample_id": str(homozygote),
                     "chrom": chrom,
                     "pos": pos,
                     "ref": ref,
@@ -97,7 +98,7 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
         for missing_geno in missing_genos:
             rows.append(
                 {
-                    "sample_id": missing_geno,
+                    "sample_id": str(missing_geno),
                     "chrom": chrom,
                     "pos": pos,
                     "ref": ref,
