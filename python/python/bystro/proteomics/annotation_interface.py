@@ -9,11 +9,12 @@ import pandas as pd
 from opensearchpy import OpenSearch
 
 from bystro.utils.config import get_opensearch_config
+from bystro.search.utils.opensearch import gather_opensearch_args
 from bystro.proteomics.fragpipe_tandem_mass_tag import TandemMassTagDataset
 
 logger = logging.getLogger(__file__)
 
-OPENSEARCH_CONFIG = get_opensearch_config()
+OPENSEARCH_CONFIG = gather_opensearch_args(get_opensearch_config())
 HETEROZYGOTE_DOSAGE = 1
 HOMOZYGOTE_DOSAGE = 2
 MISSING_GENO_DOSAGE = np.nan
@@ -26,9 +27,19 @@ OUTPUT_FIELDS = [
     "ref",
     "alt",
     "refSeq.name2",
+    "refSeq.name",
+    "refSeq.codonNumber",
+    "refSeq.codonPosition",
+    "nearestTss.refSeq.name2",
+    "nearestTss.refSeq.dist",
     "homozygotes",
     "heterozygotes",
     "missingGenos",
+    "clinvarVcf.CLNSIG",
+    "cadd",
+    "caddIndel",
+    "gnomad.genomes.AF",
+    "gnomad.exomes.AF",
 ]
 
 
@@ -54,79 +65,135 @@ def _extract_samples(samples):
     return [sample[0] for sample in samples]
 
 
+# The following fields are fetchhed by allele, and therefore only ever have one position of values
+# gnomad, dbSNP, clinvarVcf, cadd, caddIndel
+# Among these, gnomad, cadd, caddIndel have only 1 record, so we can just take the [0][0] record (first and only record)
+# gnomAD may have multiple overlapping records, so we would need to flatten the [0][0] record
 def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
     """Given a document hit, return a dataframe of samples, genes and dosages."""
     source = hit["_source"]
-    chrom = _flatten(source["chrom"])[0]
-    pos = _flatten(source["pos"])[0]
-    ref = _flatten(source["ref"])[0]
-    alt = _flatten(source["alt"])[0]
-    unique_gene_names = set(_flatten(source["refSeq"]["name2"]))
-    # homozygotes, heterozygotes may not be present in response, so
-    # represent them as empty lists if not.
+    chrom = source["chrom"][0][0][0]
+    pos = source["pos"][0][0][0]
+    ref = source["ref"][0][0][0]
+    alt = source["alt"][0][0][0]
+    refSeq = source.get("refSeq")
 
-    heterozygotes = _flatten(source.get("heterozygotes", []))
-    homozygotes = _flatten(source.get("homozygotes", []))
-    missing_genos = _flatten(source.get("missingGenos", []))
+    print("source", source)
+
+    if not refSeq:
+        return pd.DataFrame()
+    # print('refSeq', refSeq)
+    # num_position_records = len(refSeq["name"])
+    unique_gene_names = set(_flatten(refSeq["name2"]))
+    # name2_is_unique = len(unique_gene_names) == 1
+
+    heterozygotes = source.get("heterozygotes")
+    homozygotes = source.get("homozygotes")
+    missing_genos = source.get("missingGenos")
+
+    clinvarVcf = source.get("clinvarVcf")
+    clinvarVcf_clinsig = None
+    if clinvarVcf is not None:
+        clinvarVcf_clinsig = clinvarVcf.get("CLNSIG")
+        if clinvarVcf_clinsig is not None:
+            clinvarVcf_clinsig = _flatten(clinvarVcf_clinsig[0])
+
+    cadd = source.get("cadd")
+    if cadd is not None:
+        cadd = cadd[0][0][0]
+    
+    caddIndel = source.get("caddIndel")
+    if caddIndel is not None:
+        caddIndel = caddIndel['PHRED'][0][0][0]
+
+    gnomAD = source.get("gnomad")
+    gnomAD_genomes = None
+    gnomAD_exomes = None
+
+    if gnomAD is not None:
+        gnomAD_genomes = gnomAD.get("genomes")
+        gnomAD_exomes = gnomAD.get("exomes")
+
+    gnomad_genomes_af = None
+    if gnomAD_genomes is not None:
+        gnomad_genomes_af = gnomAD_genomes.get("AF")
+
+    gnomad_exomes_af = None
+    if gnomAD_exomes is not None:
+        gnomad_exomes_af = gnomAD_exomes.get("AF")
+
+    if gnomad_genomes_af is not None:
+        gnomad_genomes_af = gnomad_genomes_af[0][0][0]
+
+    if gnomad_exomes_af is not None:
+        gnomad_exomes_af = gnomad_exomes_af[0][0][0]
+
     rows = []
+    # for 
     for gene_name in unique_gene_names:
-        for heterozygote in heterozygotes:
-            rows.append(
-                {
-                    "sample_id": heterozygote,
-                    "chrom": chrom,
-                    "pos": pos,
-                    "ref": ref,
-                    "alt": alt,
-                    "gene_name": gene_name,
-                    "dosage": HETEROZYGOTE_DOSAGE,
-                }
-            )
-        for homozygote in homozygotes:
-            rows.append(
-                {
-                    "sample_id": homozygote,
-                    "chrom": chrom,
-                    "pos": pos,
-                    "ref": ref,
-                    "alt": alt,
-                    "gene_name": gene_name,
-                    "dosage": HOMOZYGOTE_DOSAGE,
-                }
-            )
-        for missing_geno in missing_genos:
-            rows.append(
-                {
-                    "sample_id": missing_geno,
-                    "chrom": chrom,
-                    "pos": pos,
-                    "ref": ref,
-                    "alt": alt,
-                    "gene_name": gene_name,
-                    "dosage": MISSING_GENO_DOSAGE,
-                }
-            )
-
+        if heterozygotes:
+            for heterozygote in _flatten(heterozygotes):
+                if heterozygote is None:
+                    continue
+                rows.append(
+                    {
+                        "sample_id": str(heterozygote),
+                        "chrom": chrom,
+                        "pos": pos,
+                        "ref": ref,
+                        "alt": alt,
+                        "gene_name": gene_name,
+                        "dosage": HETEROZYGOTE_DOSAGE,
+                        "cadd": cadd,
+                        "caddIndel": caddIndel,
+                        "gnomad_genomes_af": gnomad_genomes_af,
+                        "gnomad_exomes_af": gnomad_exomes_af
+                    }
+                )
+        if homozygotes:
+            for homozygote in _flatten(homozygotes):
+                if homozygote is None:
+                    continue
+                rows.append(
+                    {
+                        "sample_id": str(homozygote),
+                        "chrom": chrom,
+                        "pos": pos,
+                        "ref": ref,
+                        "alt": alt,
+                        "gene_name": gene_name,
+                        "dosage": HOMOZYGOTE_DOSAGE,
+                        "cadd": cadd,
+                        "caddIndel": caddIndel,
+                        "gnomad_genomes_af": gnomad_genomes_af,
+                        "gnomad_exomes_af": gnomad_exomes_af
+                    }
+                )
+        if missing_genos:
+            for missing_geno in _flatten(missing_genos):
+                if missing_geno is None:
+                    continue
+                rows.append(
+                    {
+                        "sample_id": str(missing_geno),
+                        "chrom": chrom,
+                        "pos": pos,
+                        "ref": ref,
+                        "alt": alt,
+                        "gene_name": gene_name,
+                        "dosage": MISSING_GENO_DOSAGE,
+                        "cadd": cadd,
+                        "caddIndel": caddIndel,
+                        "gnomad_genomes_af": gnomad_genomes_af,
+                        "gnomad_exomes_af": gnomad_exomes_af
+                    }
+                )
+    # print("rows", rows)
     return pd.DataFrame(rows)
-
-
-def _execute_query(
-    client: OpenSearch,
-    query_args: dict,
-) -> pd.DataFrame:
-    """Process OpenSearch query and return results."""
-    resp = client.search(**query_args)
-    return _process_response(resp)
 
 
 def _process_response(resp: dict[str, Any]) -> pd.DataFrame:
     """Postprocess query response from opensearch client."""
-    num_hits = len(resp["hits"]["hits"])
-    total_value = resp["hits"]["total"]["value"]
-    if num_hits != total_value:
-        err_msg = f"Number of hits: {num_hits} didn't equal total value: {total_value}. This is a bug."
-        raise ValueError(err_msg)
-
     samples_genes_dosages_df = pd.concat(
         [_get_samples_genes_dosages_from_hit(hit) for hit in resp["hits"]["hits"]]
     )
@@ -163,27 +230,25 @@ def _run_annotation_query(
     query: dict[str, Any],
     index_name: str,
     client: OpenSearch,
-) -> pd.DataFrame:
+) -> pd.DataFrame | None:
     """Given query and index contained in SaveJobData, run query and return results as dataframe."""
     num_slices = _get_num_slices(client, index_name, query)
     point_in_time = client.create_point_in_time(  # type: ignore[attr-defined]
         index=index_name, params={"keep_alive": OPENSEARCH_QUERY_CONFIG.keep_alive}
     )
+
+    query_results = []
     try:  # make sure we clean up the PIT index properly no matter what happens in this block
         pit_id = point_in_time["pit_id"]
         query["body"]["pit"] = {"id": pit_id}
         query["body"]["size"] = OPENSEARCH_QUERY_CONFIG.max_query_size
-        query_results = []
         for slice_id in range(num_slices):
             slice_query = query.copy()
             if num_slices > 1:
                 # Slice queries require max > 1
                 slice_query["slice"] = {"id": slice_id, "max": num_slices}
-            query_result = _execute_query(
-                client,
-                query_args=query,
-            )
-            query_results.append(query_result)
+            query_results.append(_process_response(client.search(**query)))
+        print("query_results", query_results)
     except Exception as e:
         err_msg = (
             f"Encountered exception: {e!r} while running opensearch_query, "
@@ -193,9 +258,10 @@ def _run_annotation_query(
             f"opensearch_query_config: {OPENSEARCH_QUERY_CONFIG}\n"
         )
         logger.exception(err_msg, exc_info=e)
+    finally:
         client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore[attr-defined]
-        raise
-    client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore[attr-defined]
+    
+
     return pd.concat(query_results)
 
 
@@ -226,7 +292,7 @@ def get_annotation_result_from_query(
     user_query_string: str,
     index_name: str,
     client: OpenSearch,
-) -> pd.DataFrame:
+) -> pd.DataFrame | None:
     """Given a query and index, return a dataframe of variant / sample_id records matching query."""
     query = _build_opensearch_query_from_query_string(user_query_string)
     return _run_annotation_query(query, index_name, client)
