@@ -28,6 +28,7 @@ OUTPUT_FIELDS = [
     "alt",
     "refSeq.name2",
     "refSeq.name",
+    "refSeq.exonicAlleleFunction",
     "refSeq.codonNumber",
     "refSeq.codonPosition",
     "nearestTss.refSeq.name2",
@@ -78,14 +79,14 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
     alt = source["alt"][0][0][0]
     refSeq = source.get("refSeq")
 
-    print("source", source)
-
     if not refSeq:
         return pd.DataFrame()
-    # print('refSeq', refSeq)
-    # num_position_records = len(refSeq["name"])
-    unique_gene_names = set(_flatten(refSeq["name2"]))
-    # name2_is_unique = len(unique_gene_names) == 1
+
+    positionIdx = 0
+    num_refseq_records = len(refSeq["name"][positionIdx])
+    name2_is_uniqueified = len(refSeq["name2"][positionIdx]) == 1
+    exonic_allele_function_is_uniqueified = len(refSeq["exonicAlleleFunction"][positionIdx]) == 1
+    
 
     heterozygotes = source.get("heterozygotes")
     homozygotes = source.get("homozygotes")
@@ -130,7 +131,17 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
 
     rows = []
     # for 
-    for gene_name in unique_gene_names:
+    for refseq_index in range(0, num_refseq_records):
+        if name2_is_uniqueified:
+            gene_name = refSeq["name2"][0][0][0]
+        else:
+            gene_name = refSeq["name2"][0][refseq_index][0]
+        
+        if exonic_allele_function_is_uniqueified:
+            exonic_allele_function = refSeq["exonicAlleleFunction"][0][0][0]
+        else:
+            exonic_allele_function = refSeq["exonicAlleleFunction"][0][refseq_index][0]
+
         if heterozygotes:
             for heterozygote in _flatten(heterozygotes):
                 if heterozygote is None:
@@ -142,7 +153,9 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
                         "pos": pos,
                         "ref": ref,
                         "alt": alt,
+                        "transcript": refSeq["name"][0][refseq_index][0],
                         "gene_name": gene_name,
+                        "exonic_allele_function": exonic_allele_function,
                         "dosage": HETEROZYGOTE_DOSAGE,
                         "cadd": cadd,
                         "caddIndel": caddIndel,
@@ -161,7 +174,9 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
                         "pos": pos,
                         "ref": ref,
                         "alt": alt,
+                        "transcript": refSeq["name"][0][refseq_index][0],
                         "gene_name": gene_name,
+                        "exonic_allele_function": exonic_allele_function,
                         "dosage": HOMOZYGOTE_DOSAGE,
                         "cadd": cadd,
                         "caddIndel": caddIndel,
@@ -180,7 +195,9 @@ def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
                         "pos": pos,
                         "ref": ref,
                         "alt": alt,
+                        "transcript": refSeq["name"][0][refseq_index][0],
                         "gene_name": gene_name,
+                        "exonic_allele_function": exonic_allele_function,
                         "dosage": MISSING_GENO_DOSAGE,
                         "cadd": cadd,
                         "caddIndel": caddIndel,
@@ -248,7 +265,6 @@ def _run_annotation_query(
                 # Slice queries require max > 1
                 slice_query["slice"] = {"id": slice_id, "max": num_slices}
             query_results.append(_process_response(client.search(**query)))
-        print("query_results", query_results)
     except Exception as e:
         err_msg = (
             f"Encountered exception: {e!r} while running opensearch_query, "
@@ -316,6 +332,9 @@ def join_annotation_result_to_proteomics_dataset(
 
     query_result_df.sample_id = query_result_df.sample_id.apply(get_tracking_id_from_genomic_sample_id)
     proteomics_df.sample_id = proteomics_df.sample_id.apply(get_tracking_id_from_proteomic_sample_id)
+    annotation_df = tmt_dataset.annotation_df.reset_index().drop_duplicates(subset='sample', keep="first")
+
+    proteomics_df = proteomics_df.merge(annotation_df, left_on='sample_id', right_on='sample')
 
     joined_df = query_result_df.merge(
         proteomics_df,
