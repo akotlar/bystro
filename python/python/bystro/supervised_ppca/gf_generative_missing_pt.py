@@ -101,13 +101,30 @@ class PPCAM(BasePCASGDModel):
         N, p = X.shape
         self.p = p
 
-        W_, sigmal_ = self._initialize_variables(X)
-
         X_list, miss_pat = classify_missingness(X)
-        Xt_list = [torch.tensor(X) for X in X_list]
+        # print("X_list", X_list)
+        # print("miss_pat", np.invert(np.stack(miss_pat)))
+        Xt_list = []
+        for i in range(len(X_list)):
+            Xt = X_list[i]
+            # print("miss_pat[i]", miss_pat[i])
+
+            # print("Xt[i] before setting to 0", Xt)
+            # print("shape", Xt.shape)
+
+            Xt[:, np.invert(miss_pat[i])] = 0.0
+            Xt_list.append(Xt)
+            print("shape", Xt.shape)
+        print("Xt_list stack", np.concatenate(Xt_list))
+        Xt_np_array = np.concatenate(Xt_list)
+        # Xt_list = [torch.tensor(X) for X in X_list]
+        # Xt_list_nonmissing = [torch.tensor(X) for X in Xt_list if np.sum(np.invert(np.stack(miss_pat))) > 0]
+        print("Xt_list", Xt_list)
+        W_, sigmal_ = self._initialize_variables(Xt_np_array)
 
         n_groups = len(Xt_list)
         p_list = np.array([np.sum(mp) for mp in miss_pat])
+        print('p_list', p_list)
 
         trainable_variables = [W_, sigmal_]
 
@@ -129,10 +146,21 @@ class PPCAM(BasePCASGDModel):
             Sigma = WWT + sigma * eye
 
             like_marginal = []
+            print("n_groups", n_groups)
             for y in range(n_groups):
                 sigma = Sigma[miss_pat[y]][:, miss_pat[y]]
                 mvn = MultivariateNormal(torch.zeros(p_list[y]), sigma)
                 like_marginal.append(torch.sum(mvn.log_prob(Xt_list[y])))
+            batch_means = torch.stack([torch.zeros(p_list[y]) for y in range(n_groups)])
+            print("batch_means", batch_means.shape)
+            batch_covariances = torch.stack([Sigma[miss_pat[y]][:, miss_pat[y]] for y in range(n_groups)])
+            print("batch_covariances", batch_covariances.shape)
+            batch_mvn = MultivariateNormal(batch_means, batch_covariances)
+            print("Xt_list", Xt_list)
+            log_prob = batch_mvn.log_prob(torch.stack(Xt_list))
+            print("stacked version shape", log_prob.shape, "imperative version shape", len(like_marginal))
+            print("like_marginal", like_marginal)
+            print("log_prob", torch.sum(log_prob))
 
             like_tot = torch.sum(torch.stack(like_marginal)) / N
             like_prior = _prior(trainable_variables)
