@@ -15,6 +15,7 @@ import (
 )
 
 const EXPECTED_ANNOTATION_FILE_SUFFIX = "annotation.tsv.gz"
+const DEFAULT_BUFFER_SIZE = 64 * 1024 * 8 // 8 bgzip blocks at a time
 
 type BystroReader interface {
 	ReadLines() ([]byte, error)
@@ -22,16 +23,18 @@ type BystroReader interface {
 }
 
 type BzfBystroReader struct {
-	Reader *bgzf.Reader
+	Reader     *bgzf.Reader
+	BufferSize int
 }
 
 type BufioBystroReader struct {
-	Reader *bufio.Reader
+	Reader     *bufio.Reader
+	BufferSize int
 }
 
 // Read a line up to the next newline character, and return the line excluding the newline character
 // Implementation follows the example in the bgzf package documentation: https://github.com/biogo/hts/blob/bb1e21d1bfc7f2b1e124ca0a1ed98493d191db78/bgzf/line_example_test.go#L70
-func _readLineBgzip(r *bgzf.Reader) ([]byte, error) {
+func readLineBgzipNoTx(r *bgzf.Reader) ([]byte, error) {
 	var (
 		data []byte
 		b    byte
@@ -50,15 +53,15 @@ func _readLineBgzip(r *bgzf.Reader) ([]byte, error) {
 	return data, err
 }
 
-func ReadLineBgzip(r *bgzf.Reader) ([]byte, error) {
+func readLineBgzip(r *bgzf.Reader) ([]byte, error) {
 	tx := r.Begin()
-	data, err := _readLineBgzip(r)
+	data, err := readLineBgzipNoTx(r)
 	tx.End()
 	return data, err
 }
 
-func ReadLinesBgzip(r *bgzf.Reader) ([]byte, error) {
-	buf := make([]byte, 64*1024*8) // 8 bgzip blocks at a time
+func readLinesBgzipWithBuffer(r *bgzf.Reader, bufferSize int) ([]byte, error) {
+	buf := make([]byte, bufferSize)
 
 	tx := r.Begin()
 	defer tx.End()
@@ -70,14 +73,14 @@ func ReadLinesBgzip(r *bgzf.Reader) ([]byte, error) {
 	}
 
 	if buf[bytesRead-1] != '\n' {
-		remainder, err := _readLineBgzip(r)
+		remainder, err := readLineBgzipNoTx(r)
 		return append(buf[:bytesRead], remainder...), err
 	}
 	// last byte is newline
 	return buf[:bytesRead-1], err
 }
 
-func ReadLine(r *bufio.Reader) ([]byte, error) {
+func readLine(r *bufio.Reader) ([]byte, error) {
 	var (
 		data []byte
 		b    byte
@@ -96,8 +99,8 @@ func ReadLine(r *bufio.Reader) ([]byte, error) {
 	return data, err
 }
 
-func ReadLines(r *bufio.Reader) ([]byte, error) {
-	buf := make([]byte, 64*1024*8) // 8 bgzip blocks at a time
+func readLinesWithBuffer(r *bufio.Reader, bufferSize int) ([]byte, error) {
+	buf := make([]byte, bufferSize)
 
 	bytesRead, err := r.Read(buf)
 
@@ -106,7 +109,7 @@ func ReadLines(r *bufio.Reader) ([]byte, error) {
 	}
 
 	if buf[bytesRead-1] != '\n' {
-		remainder, err := ReadLine(r)
+		remainder, err := readLine(r)
 		return append(buf[:bytesRead], remainder...), err
 	}
 	// last byte is newline
@@ -114,15 +117,15 @@ func ReadLines(r *bufio.Reader) ([]byte, error) {
 }
 
 func (r *BzfBystroReader) ReadLines() ([]byte, error) {
-	return ReadLinesBgzip(r.Reader)
+	return readLinesBgzipWithBuffer(r.Reader, DEFAULT_BUFFER_SIZE)
 }
 
 func (r *BzfBystroReader) ReadLine() ([]byte, error) {
-	return ReadLineBgzip(r.Reader)
+	return readLineBgzip(r.Reader)
 }
 
 func (r *BufioBystroReader) ReadLines() ([]byte, error) {
-	return ReadLines(r.Reader)
+	return readLinesWithBuffer(r.Reader, DEFAULT_BUFFER_SIZE)
 }
 func (r *BufioBystroReader) ReadLine() ([]byte, error) {
 	return r.Reader.ReadBytes('\n')
@@ -148,37 +151,56 @@ func GetHeaderPaths(b BystroReader) ([][]string, []string) {
 }
 
 func GetAnnotationFhFromTarArchive(archive *os.File) (BystroReader, fs.FileInfo, error) {
-	tarReader, fileStats, err := _getAnnotationFhFromTarArchive(archive)
+	tarReader, fileStats, err := getTarReader(archive)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	b, err := bgzf.NewReader(tarReader, 0)
-	if err != nil {
-		archive.Seek(0, 0)
+	bzfReader, err := getBgzipReaderFromBgzipAnnotation(tarReader)
 
-		tarReader, fileStats, err := _getAnnotationFhFromTarArchive(archive)
-
-		if err != nil {
-			return nil, nil, err
-		}
-
-		b, err := gzip.NewReader(tarReader)
-
-		if err != nil {
-			return nil, nil, err
-		}
-
-		bufioReader := bufio.NewReader(b)
-
-		return &BufioBystroReader{Reader: bufioReader}, fileStats, nil
+	if err == nil {
+		return bzfReader, fileStats, nil
 	}
 
-	return &BzfBystroReader{Reader: b}, fileStats, err
+	archive.Seek(0, 0)
+
+	bufioReader, err := getBufioReaderFromGzipAnnotation(tarReader)
+
+	return bufioReader, fileStats, err
 }
 
-func _getAnnotationFhFromTarArchive(archive *os.File) (*tar.Reader, fs.FileInfo, error) {
+func getBgzipReaderFromBgzipAnnotation(tarReader *tar.Reader) (*BzfBystroReader, error) {
+	err := pointTarReaderAtAnnotation(tarReader)
+	if err != nil {
+		return nil, err
+	}
+
+	bgzfReader, err := bgzf.NewReader(tarReader, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BzfBystroReader{Reader: bgzfReader}, nil
+}
+
+func getBufioReaderFromGzipAnnotation(tarReader *tar.Reader) (*BufioBystroReader, error) {
+	err := pointTarReaderAtAnnotation(tarReader)
+	if err != nil {
+		return nil, err
+	}
+
+	gzipReader, err := gzip.NewReader(tarReader)
+	if err != nil {
+		return nil, err
+	}
+
+	bufioReader := bufio.NewReader(gzipReader)
+
+	return &BufioBystroReader{Reader: bufioReader}, nil
+}
+
+func getTarReader(archive *os.File) (*tar.Reader, fs.FileInfo, error) {
 	fileStats, err := archive.Stat()
 	if err != nil {
 		return nil, nil, err
@@ -186,20 +208,24 @@ func _getAnnotationFhFromTarArchive(archive *os.File) (*tar.Reader, fs.FileInfo,
 
 	tarReader := tar.NewReader(archive)
 
+	return tarReader, fileStats, nil
+}
+
+func pointTarReaderAtAnnotation(tarReader *tar.Reader) error {
 	for {
 		header, err := tarReader.Next()
 		if err != nil {
 			if err == io.EOF {
 				break // End of archive
 			}
-			return nil, nil, err
+			return err
 		}
 
 		// TODO @akotlar 2023-11-24: Take the expected file name from the information submitted in the beanstalkd queue message
 		if strings.HasSuffix(header.Name, EXPECTED_ANNOTATION_FILE_SUFFIX) {
-			return tarReader, fileStats, nil
+			return nil
 		}
 	}
 
-	return nil, nil, fmt.Errorf("couldn't find annotation file in tarball")
+	return fmt.Errorf("couldn't find annotation file in tarball")
 }
