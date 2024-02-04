@@ -1,6 +1,5 @@
 from bystro.beanstalkd.messages import (
     BaseMessage,
-    SubmittedJobMessage,
     CompletedJobMessage,
     Struct,
 )

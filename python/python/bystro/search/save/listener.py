@@ -11,13 +11,13 @@ from bystro.beanstalkd.worker import (
     QueueConf,
     listen,
 )
+from bystro.beanstalkd.messages import SubmittedJobMessage
 from bystro.search.save.handler import go
 from bystro.search.utils.annotation import AnnotationOutputs
 from bystro.search.utils.messages import (
     SaveJobCompleteMessage,
     SaveJobData,
-    SaveJobResults,
-    SubmittedJobMessage,
+    SaveJobResults
 )
 
 TUBE = "saveFromQuery"
