@@ -125,7 +125,7 @@ has outputFilesInfo => (
       # which dominates the archive 99%, cannot be compressed at all
       $out{archived} = $self->makeTarballName( $outBaseName, !$self->compress );
     }
-    say STDERR " in definition " . $self->config . "  " . path( $self->config )->basename;
+
     $out{config} = path( $self->config )->basename;
 
     return \%out;
