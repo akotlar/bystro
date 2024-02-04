@@ -358,7 +358,7 @@ sub annotateFile {
   $err =
        $self->safeClose($outFh)
     || ( $statsFh && $self->safeClose($statsFh) )
-    || $self->safeSystem("cp " . $self->config . " $configOutPath")
+    || $self->safeSystem( "cp " . $self->config . " $configOutPath" )
     || $self->safeSystem('sync')
     || $self->_moveFilesToOutputDir();
 
