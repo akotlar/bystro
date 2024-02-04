@@ -164,7 +164,7 @@ has ignore_unknown_chr => (
 
 sub annotate {
   my $self = shift;
-
+  say STDERR " DSTUFF " .$self->config;
   my $args = {
     config             => $self->config,
     input_file         => $self->input_file,
