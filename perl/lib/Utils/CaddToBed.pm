@@ -28,9 +28,9 @@ sub BUILD {
   my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 
   my $localFilesAref = $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
   );
 
   if ( @$localFilesAref != 1 ) {
@@ -59,7 +59,7 @@ sub go {
   my %skippedBecauseExists;
 
   # We'll update this list of files in the config file
-  $self->_wantedTrack->{local_files} = [];
+  $self->_wantedTrack->{localFiles} = [];
 
   my $inFh = $self->getReadFh($inFilePath);
 
@@ -139,7 +139,7 @@ sub go {
     say $outFh join( "\t", $chr, $start, $end, @line[ 2 .. $#line ] );
   }
 
-  $self->_wantedTrack->{local_files} = [$outPath];
+  $self->_wantedTrack->{localFiles} = [$outPath];
 
   $self->_backupAndWriteConfig();
 }

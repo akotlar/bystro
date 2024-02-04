@@ -79,7 +79,7 @@ sub BUILD {
   # TODO: prevent header features from overriding info fields by using info.field
   # notation as a feature
   $self->{_infoFeatureNames} = $self->_getInfoFeatureNames();
-  $self->{_numFilters}       = scalar keys %{ $self->build_row_filters } || 0;
+  $self->{_numFilters}       = scalar keys %{ $self->buildRowFilters } || 0;
 
   # Precalculate the field db names, for faster accesss
   # TODO: think about moving away from storing the "db name" in the database
@@ -157,7 +157,7 @@ sub buildTrack {
     }
   );
 
-  for my $file ( @{ $self->local_files } ) {
+  for my $file ( @{ $self->localFiles } ) {
     $self->log( 'info', $self->name . ": beginning building from $file" );
 
     # Although this should be unnecessary, environments must be created
@@ -316,13 +316,13 @@ sub buildTrack {
 sub _findExpectedFeatures {
   my ( $self, $expFeaturesAref ) = @_;
 
-  my $file = $self->local_files->[0];
+  my $file = $self->localFiles->[0];
 
   if ( !$file ) {
     return ( "Require at least one file in local_file", undef );
   }
 
-  my ( $err, $fh ) = $self->_openVcfPipe( $self->local_files->[0] );
+  my ( $err, $fh ) = $self->_openVcfPipe( $self->localFiles->[0] );
 
   if ($err) {
     return ( $err, undef );
@@ -560,7 +560,7 @@ sub _extractHeader {
     }
 
     # Filters on INFO fields
-    FEATURE_LOOP: for my $feature ( keys %{ $self->build_row_filters } ) {
+    FEATURE_LOOP: for my $feature ( keys %{ $self->buildRowFilters } ) {
       my $infoName = $self->{_infoFeatureNames}{$feature} || $feature;
 
       if ( index( $h, "INFO\=\<ID\=$infoName," ) > 0 ) {

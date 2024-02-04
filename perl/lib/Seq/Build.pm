@@ -38,7 +38,7 @@ has wantedType => ( is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef
 #TODO: allow building just one track, identified by name
 has wantedName => ( is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef );
 
-has meta_only => ( is => 'ro', default => 0 );
+has metaOnly => ( is => 'ro', default => 0 );
 
 # The config file path, used to update the config file with build version date & author
 has config => ( is => 'ro', required => 1 );
@@ -58,7 +58,7 @@ sub BUILD {
   my $buildAuthor = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
   # Meta tracks are built during instantiation, so if we only want to build the
   # meta data, we can return here safely.
-  if ( $self->meta_only ) {
+  if ( $self->metaOnly ) {
     return;
   }
 
@@ -188,7 +188,7 @@ sub BUILD {
 
   # Create a clean copy, free of file paths, for github
   $decodedConfig->{database_dir} = '~';
-  $decodedConfig->{files_dir}    = '~';
+  $decodedConfig->{filesDir}    = '~';
   $decodedConfig->{temp_dir}     = '~';
 
   $newConfigPathBase = path( $self->config )->basename;

@@ -32,8 +32,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file =
   PrepareConfigWithTempdirs( 't/tracks/vcf/clinvar.yml',
-  't/tracks/vcf/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',        $dir->stringify );
+  't/tracks/vcf/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',        $dir->stringify );
 
 my $baseMapper = Seq::Tracks::Reference::MapBases->new();
 

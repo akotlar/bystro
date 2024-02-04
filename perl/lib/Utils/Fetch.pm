@@ -126,7 +126,7 @@ sub _fetchFromUCSCsql {
   # Returns the relative file names
   my @writtenFileNames = $sqlWriter->go();
 
-  $self->_wantedTrack->{local_files} = \@writtenFileNames;
+  $self->_wantedTrack->{localFiles} = \@writtenFileNames;
 
   $self->_backupAndWriteConfig();
 
@@ -166,7 +166,7 @@ sub _fetchFiles {
 
   my $outDir = $self->_localFilesDir;
 
-  $self->_wantedTrack->{local_files} = [];
+  $self->_wantedTrack->{localFiles} = [];
 
   for my $file ( @{ $self->remoteFiles } ) {
     my $remoteUrl;
@@ -232,7 +232,7 @@ sub _fetchFiles {
 
     my $outFileName = $remoteDir ? $file : substr( $file, rindex( $file, '/' ) + 1 );
 
-    push @{ $self->_wantedTrack->{local_files} }, $outFileName;
+    push @{ $self->_wantedTrack->{localFiles} }, $outFileName;
 
     # stagger requests to be kind to the remote server
     sleep 3;

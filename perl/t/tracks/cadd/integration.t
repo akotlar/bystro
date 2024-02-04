@@ -25,8 +25,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/cadd/integration.yml',
-  't/tracks/cadd/db', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',        $dir->stringify
+  't/tracks/cadd/db', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',        $dir->stringify
 );
 
 my $runConfig = LoadFile($config_file);
@@ -44,7 +44,7 @@ my $db = Seq::DBManager->new();
 $refBuilder->buildTrack();
 $caddBuilder->buildTrack();
 
-my @localFiles = @{ $caddBuilder->local_files };
+my @localFiles = @{ $caddBuilder->localFiles };
 
 # # adapted from scorebuilder
 my $headerRegex = qr/^#/;

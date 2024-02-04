@@ -17,8 +17,8 @@ my $seq = Seq::Tracks::Build->new(
     type        => 'gene',
     assembly    => 'hg38',
     features    => [ 'someString', 'someInt: int', ],
-    local_files => ['fake'],
-    files_dir   => Path::Tiny->tempdir(),
+    localFiles => ['fake'],
+    filesDir   => Path::Tiny->tempdir(),
   }
 );
 

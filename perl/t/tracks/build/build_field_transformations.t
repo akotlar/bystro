@@ -19,15 +19,15 @@ my $seq = Seq::Tracks::Build->new(
     assembly    => 'hg38',
     features    =>
       [ 'someFeature', 'someOther', 'someToSplit', 'someToJoinLeft', 'someToJoinRight' ],
-    build_field_transformations => {
+    buildFieldTransformations => {
       someFeature     => "replace /[.]+/,/",
       someOther       => "replace /[.]+/ /",
       someToSplit     => "split [,]+",
       someToJoinRight => ". _with_hello_world",
       someToJoinLeft  => "chr ."
     },
-    local_files => ['fake'],
-    files_dir   => Path::Tiny->tempdir(),
+    localFiles => ['fake'],
+    filesDir   => Path::Tiny->tempdir(),
   }
 );
 

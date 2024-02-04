@@ -8,13 +8,13 @@ use Seq::Tracks::Build;
 
 # create temp directories
 my $db_dir    = Path::Tiny->tempdir();
-my $files_dir = Path::Tiny->tempdir();
+my $filesDir = Path::Tiny->tempdir();
 
 Seq::DBManager::initialize( { databaseDir => $db_dir } );
 
 my $t = Seq::Tracks::Build->new(
   {
-    files_dir   => $db_dir,
+    filesDir   => $db_dir,
     name        => 'test',
     type        => 'sparse',
     chromosomes => ['testChr'],

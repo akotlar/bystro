@@ -25,8 +25,8 @@ my $dir = Path::Tiny->tempdir();
 
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/gene/join_no_build.yml',
-  't/tracks/gene/db/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',            $dir->stringify
+  't/tracks/gene/db/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',            $dir->stringify
 );
 
 my $config = YAML::XS::LoadFile($config_file);

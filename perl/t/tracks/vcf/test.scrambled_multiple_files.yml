@@ -12,7 +12,7 @@ fileProcessors:
 chromosomes:
   - chr22
 database_dir: t/tracks/vcf/index/
-files_dir: t/tracks/vcf/raw/
+filesDir: t/tracks/vcf/raw/
 statistics:
   dbSNPnameField: dbSNP.name
   exonicAlleleFunctionField: refSeq.exonicAlleleFunction
@@ -62,7 +62,7 @@ tracks:
         - af_oth: number
         - af_male: number
         - af_female: number
-      build_row_filters:
+      buildRowFilters:
         AS_FilterStatus: == PASS
       fieldMap:
         AC: ac
@@ -95,7 +95,7 @@ tracks:
         AF_OTH: af_oth
         AF_Male: af_male
         AF_Female: af_female
-      local_files:
+      localFiles:
         - test_split_part*.vcf*
       name: gnomad.genomes.scrambled
       type: vcf

@@ -3,7 +3,7 @@ assembly: hg19
 chromosomes:
   - chrM
 database_dir: ~
-files_dir: ~
+filesDir: ~
 temp_dir: ~
 tracks:
   tracks:

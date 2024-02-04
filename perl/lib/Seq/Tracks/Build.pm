@@ -72,7 +72,7 @@ has maxThreads => ( is => 'ro', isa => 'Int', lazy => 1, default => 8 );
 ########## Arguments taken from YAML config file or passed some other way ##############
 
 #################################### Required ###################################
-has local_files => (
+has localFiles => (
   is      => 'ro',
   isa     => 'ArrayRef',
   traits  => ['Array'],
@@ -89,7 +89,7 @@ has local_files => (
 has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1 );
 
 # If a row has a field that doesn't pass this filter, skip it
-has build_row_filters => (
+has buildRowFilters => (
   is      => 'ro',
   isa     => 'HashRef',
   traits  => ['Hash'],
@@ -102,7 +102,7 @@ has build_row_filters => (
 );
 
 # Transform a field in some way
-has build_field_transformations => (
+has buildFieldTransformations => (
   is      => 'ro',
   isa     => 'HashRef',
   traits  => ['Hash'],
@@ -162,7 +162,7 @@ sub BUILD {
   Seq::DBManager::cleanUp();
 }
 
-# Configure local_files as abs path, and configure required field (*_field_name)
+# Configure localFiles as abs path, and configure required field (*_field_name)
 # *_field_name is a computed attribute that the consumer may choose to implement
 # Example. In config:
 #  required_field_map:
@@ -175,12 +175,12 @@ around BUILDARGS => sub {
 
   my %data = %$href;
 
-  if ( !$href->{files_dir} ) {
-    $class->log( 'fatal', "files_dir required for track builders" );
+  if ( !$href->{filesDir} ) {
+    $class->log( 'fatal', "filesDir required for track builders" );
   }
 
-  $data{local_files} = $localFilesHandler->makeAbsolutePaths( $href->{files_dir},
-    $href->{name}, $href->{local_files} );
+  $data{localFiles} = $localFilesHandler->makeAbsolutePaths( $href->{filesDir},
+    $href->{name}, $href->{localFiles} );
 
   return $class->$orig( \%data );
 };
@@ -242,7 +242,7 @@ sub passesFilter {
   #   $_[0],      $_[1],    $_[2]
   my ( $self, $featureName, $featureValue ) = @_;
 
-  my $command = $self->build_row_filters->{$featureName};
+  my $command = $self->buildRowFilters->{$featureName};
 
   my ( $infix, $value ) = split( ' ', $command );
 
@@ -306,7 +306,7 @@ sub passesFilter {
     $self->log(
       'warn',
       "This filter, "
-        . $self->build_row_filters->{$featureName}
+        . $self->buildRowFilters->{$featureName}
         . ", uses an  operator $infix that isn\'t supported.
       Therefore this filter won\'t be run, and all values for $featureName will be allowed"
     );
@@ -334,7 +334,7 @@ sub transformField {
   #   $_[0],      $_[1],    $_[2]
   my ( $self, $featureName, $featureValue ) = @_;
 
-  my $command = $self->build_field_transformations->{$featureName};
+  my $command = $self->buildFieldTransformations->{$featureName};
 
   my $leftHand  = substr( $command, 0, index( $command, ' ' ) );
   my $rightHand = substr( $command, index( $command, ' ' ) + 1 );

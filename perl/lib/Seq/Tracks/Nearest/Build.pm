@@ -58,7 +58,7 @@ my $mp = Data::MessagePack->new()->canonical();
 # This, at the moment, must be a column in which each value is a number
 # So for instance, exonEnds, which have multiple comma-separated values
 # Wouldn't work, since they would either be treated as a string,
-# or through build_field_transformations: exonEnds: split(,)
+# or through buildFieldTransformations: exonEnds: split(,)
 # would appear to this program as an array of numbers, which this program
 # doesn't currently know what to do with
 has from => ( is => 'ro', isa => 'Str', required => 1 );
@@ -80,7 +80,7 @@ has to => (
   }
 );
 
-# If we're not given local_files, get them from a track reference
+# If we're not given localFiles, get them from a track reference
 has ref => ( is => 'ro', isa => 'Seq::Tracks::Build' );
 
 # So that we know which db to store within (db is segregated on chromosome)
@@ -99,9 +99,9 @@ my $txNumberKey = 'txNumber';
 around BUILDARGS => sub {
   my ( $orig, $self, $data ) = @_;
 
-  if ( !defined $data->{local_files} ) {
+  if ( !defined $data->{localFiles} ) {
     # Careful with the reference
-    $data->{local_files} = $data->{ref}->local_files;
+    $data->{localFiles} = $data->{ref}->localFiles;
   }
 
   # We require non-empty 'from'
@@ -138,19 +138,19 @@ around BUILDARGS => sub {
   # allows us to consider from .. to rather than from .. to - 1, from - 1 .. to, etc
   # TODO: don't assume UCSC-style genes, and require a build_field_transformation
   # For anything other than 'from' as 0-based closed and 'to' as 0-based open (+1 of true)
-  if ( $data->{build_field_transformations}{ $data->{from} }
-    && ( !$data->{to} || $data->{build_field_transformations}{ $data->{to} } ) )
+  if ( $data->{buildFieldTransformations}{ $data->{from} }
+    && ( !$data->{to} || $data->{buildFieldTransformations}{ $data->{to} } ) )
   {
     return $self->$orig($data);
   }
 
-  # We softly enforce build_field_transformations for the comm
+  # We softly enforce buildFieldTransformations for the comm
   if ( $data->{from} eq 'txEnd' || $data->{from} eq 'cdsEnd' ) {
-    $data->{build_field_transformations}{ $data->{from} } = '- 1';
+    $data->{buildFieldTransformations}{ $data->{from} } = '- 1';
   }
 
   if ( $data->{to} && ( $data->{to} eq 'txEnd' || $data->{to} eq 'cdsEnd' ) ) {
-    $data->{build_field_transformations}{ $data->{to} } = '- 1';
+    $data->{buildFieldTransformations}{ $data->{to} } = '- 1';
   }
 
   return $self->$orig($data);

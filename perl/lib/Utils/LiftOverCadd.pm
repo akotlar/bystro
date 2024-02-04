@@ -40,13 +40,13 @@ sub go {
   my $gzip = $self->gzip;
 
   my $localFilesPathsAref = $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
   );
 
   my $outDir =
-    path( $self->_decodedConfig->{files_dir} )->child( $self->_wantedTrack->{name} );
+    path( $self->_decodedConfig->{filesDir} )->child( $self->_wantedTrack->{name} );
 
   my $pm = Parallel::ForkManager->new( $self->maxThreads );
 
@@ -95,7 +95,7 @@ sub go {
         "$liftedPath and $unmappedPath exist, and overwrite not set. Skipping." );
       close $inFh;
 
-      # Push so that we can update our local_files after loop finishes
+      # Push so that we can update our localFiles after loop finishes
       push @finalOutPaths, $liftedPath;
 
       next;
@@ -155,7 +155,7 @@ sub go {
 
   $pm->wait_all_children;
 
-  $self->_wantedTrack->{local_files} = \@finalOutPaths;
+  $self->_wantedTrack->{localFiles} = \@finalOutPaths;
 
   $self->_backupAndWriteConfig();
 }

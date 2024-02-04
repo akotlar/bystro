@@ -32,8 +32,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/vcf/test.hg38.chr22.yml',
-  't/tracks/vcf/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',        $dir->stringify
+  't/tracks/vcf/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',        $dir->stringify
 );
 
 my $baseMapper = Seq::Tracks::Reference::MapBases->new();
@@ -181,7 +181,7 @@ $vcf->get( $href, 'chr22', 'C', 'G', 0, 0, $out );
 
 ok(
   @{$out} == 0,
-  "Non PASS AS_FilterStatus causes alleles to be skipped in multiallelic (testing build_row_filters on INFO values)"
+  "Non PASS AS_FilterStatus causes alleles to be skipped in multiallelic (testing buildRowFilters on INFO values)"
 );
 
 # my $numFeatures = scalar @{$vcf->features};

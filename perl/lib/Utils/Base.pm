@@ -39,7 +39,7 @@ has logPath => (
   default => sub {
     my $self = shift;
     my $path =
-      path( $self->_decodedConfig->{files_dir} )->child( $self->_wantedTrack->{name} )
+      path( $self->_decodedConfig->{filesDir} )->child( $self->_wantedTrack->{name} )
       ->child( $self->name . "." . $self->_dateOfRun . ".log" );
 
     return $path->stringify();
@@ -101,7 +101,7 @@ has _localFilesDir => (
   default => sub {
     my $self = shift;
     my $dir =
-      path( $self->_decodedConfig->{files_dir} )->child( $self->_wantedTrack->{name} );
+      path( $self->_decodedConfig->{filesDir} )->child( $self->_wantedTrack->{name} );
 
     return $dir->stringify;
   }

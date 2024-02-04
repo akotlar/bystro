@@ -3,11 +3,11 @@ assembly: hg19
 chromosomes:
   - chrM
 database_dir: t/tracks/gene/db/index
-files_dir: t/tracks/gene/db/raw
+filesDir: t/tracks/gene/db/raw
 temp_dir: /mnt/annotator/bystro-dev/tmp
 tracks:
   tracks:
-    - local_files:
+    - localFiles:
         - chrM.fa.gz
       name: ref
       type: reference
@@ -21,7 +21,7 @@ tracks:
         - rfamAcc
         - name
         - name2
-      local_files:
+      localFiles:
         - hg19.refGene.chrM
       name: refSeq
       type: gene
@@ -39,14 +39,14 @@ tracks:
         track: clinvar
     - based: 1
       no_build: 1
-      build_field_transformations:
+      buildFieldTransformations:
         chrom: chr .
         clinicalSignificance: split [;]
         origin: split [;]
         phenotypeList: split [;]
         reviewStatus: split [;]
         type: split [;]
-      build_row_filters:
+      buildRowFilters:
         Assembly: == GRCh38
       features:
         - alleleID: number
@@ -72,7 +72,7 @@ tracks:
         Start: chromStart
         Stop: chromEnd
         Type: type
-      local_files:
+      localFiles:
         - variant_summary.txt.MT.1600_3250.gz
       name: clinvar
       type: sparse

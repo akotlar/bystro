@@ -100,7 +100,7 @@ sub buildTrack {
     $self->log( "fatal", $self->name . ": requires sorted to be true" );
   }
 
-  for my $file ( @{ $self->local_files } ) {
+  for my $file ( @{ $self->localFiles } ) {
     $self->log( 'info', $self->name . ": beginning building from $file" );
 
     # Although this should be unnecessary, environments must be created

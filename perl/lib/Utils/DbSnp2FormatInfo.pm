@@ -30,9 +30,9 @@ sub BUILD {
   my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 
   my $localFilesAref = $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
   );
 
   $self->{_localFiles} = $localFilesAref;
@@ -202,7 +202,7 @@ sub go {
     push @output_paths, $output_path;
   }
 
-  $self->_wantedTrack->{local_files} = \@output_paths;
+  $self->_wantedTrack->{localFiles} = \@output_paths;
 
   $self->_backupAndWriteConfig();
 }

@@ -30,10 +30,10 @@ my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 sub BUILD {
   my $self = shift;
 
-  $self->_wantedTrack->{local_files} = $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+  $self->_wantedTrack->{localFiles} = $localFilesHandler->makeAbsolutePaths(
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
   );
 }
 
@@ -52,7 +52,7 @@ sub go {
 
   my $outExt = '.organized-by-chr' . $outExtPart;
 
-  for my $inFilePath ( @{ $self->_wantedTrack->{local_files} } ) {
+  for my $inFilePath ( @{ $self->_wantedTrack->{localFiles} } ) {
     my $outPathBase = substr( $inFilePath, 0, rindex( $inFilePath, '.' ) );
 
     $outPathBase =~ s/\.(chr[\w_\-]+)//;
@@ -196,7 +196,7 @@ sub go {
 
   $pm->wait_all_children();
 
-  $self->_wantedTrack->{local_files} = \@finalOutPaths;
+  $self->_wantedTrack->{localFiles} = \@finalOutPaths;
 
   # Make sure that we indicate to the user that cadd is guaranteed to be sorted
   # This speeds up cadd building

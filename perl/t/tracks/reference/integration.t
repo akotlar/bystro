@@ -23,8 +23,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/reference/integration.yml',
-  't/tracks/reference/db/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',                 $dir->stringify
+  't/tracks/reference/db/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',                 $dir->stringify
 );
 
 # get chromosomes that are considered
@@ -40,7 +40,7 @@ my $db         = Seq::DBManager->new();
 
 $refBuilder->buildTrack();
 
-my @localFiles = @{ $refBuilder->local_files };
+my @localFiles = @{ $refBuilder->localFiles };
 
 for my $file (@localFiles) {
   my $fh = $refBuilder->getReadFh($file);

@@ -32,9 +32,9 @@ sub BUILD {
   my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 
   $self->{_localFiles} = $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
   );
 
   if ( !@{ $self->{_localFiles} } ) {
@@ -205,7 +205,7 @@ sub go {
   }
 
   # We'll update this list of files in the config file
-  $self->_wantedTrack->{local_files} = [];
+  $self->_wantedTrack->{localFiles} = [];
 
   my $pm = Parallel::ForkManager->new( $self->maxThreads );
 
@@ -218,7 +218,7 @@ sub go {
           "Failed to add dbnsfp, with exit code $exitCode for file $$outFileRef" );
       }
 
-      push @{ $self->_wantedTrack->{local_files} }, path($$outFileRef)->basename;
+      push @{ $self->_wantedTrack->{localFiles} }, path($$outFileRef)->basename;
     }
   );
 

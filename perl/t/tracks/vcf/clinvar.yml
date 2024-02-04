@@ -11,7 +11,7 @@ fileProcessors:
 chromosomes:
   - chr1
 database_dir: t/tracks/vcf/index/
-files_dir: t/tracks/vcf/raw/
+filesDir: t/tracks/vcf/raw/
 temp_dir: "~"
 tracks:
   tracks:
@@ -40,7 +40,7 @@ tracks:
         - pmids
         - origin
         - xrefs
-      build_field_transformations:
+      buildFieldTransformations:
         molecular_consequence: split [|]
         clinical_significance: split [|/]
         review_status: split [|]
@@ -73,7 +73,7 @@ tracks:
         ORIGIN: origin
         XREFS: xrefs
         LAST_EVALUATED: last_evaluated
-      local_files:
+      localFiles:
         - clinvar_alleles.single.b38.vcf.1lines.gz
       name: clinvar.match
       type: vcf

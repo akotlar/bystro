@@ -51,13 +51,13 @@ sub go {
 
   my ( $localFilesPathsAref, $has_absolute_files ) =
     $localFilesHandler->makeAbsolutePaths(
-    $self->_decodedConfig->{files_dir},
+    $self->_decodedConfig->{filesDir},
     $self->_wantedTrack->{name},
-    $self->_wantedTrack->{local_files}
+    $self->_wantedTrack->{localFiles}
     );
 
   my $outDir =
-    path( $self->_decodedConfig->{files_dir} )->child( $self->_wantedTrack->{name} );
+    path( $self->_decodedConfig->{filesDir} )->child( $self->_wantedTrack->{name} );
 
   my $pm = Parallel::ForkManager->new( $self->maxThreads );
 
@@ -320,7 +320,7 @@ sub go {
 
   $pm->wait_all_children();
 
-  $self->_wantedTrack->{local_files} = \@outPaths;
+  $self->_wantedTrack->{localFiles} = \@outPaths;
 
   $self->_backupAndWriteConfig();
 

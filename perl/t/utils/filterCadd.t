@@ -29,7 +29,7 @@ my $config = {
   'assembly'     => 'hg38',
   'chromosomes'  => [ 'chr22', 'chr1', 'chr2' ],
   'database_dir' => $db_dir->stringify,
-  'files_dir'    => $raw_dir->stringify,
+  'filesDir'    => $raw_dir->stringify,
   'tracks'       => {
     'tracks' => [
       {
@@ -46,7 +46,7 @@ my $config = {
         'fetch_completed'      => '2023-10-17T21:55:00',
         'filterCadd_completed' => '2023-05-26T14:05:00',
         'filterCadd_date'      => '2017-09-12T19:18:00',
-        'local_files'          => [
+        'localFiles'          => [
           'test.filterCadd.cadd.chr22.txt', 'test.filterCadd.cadd.chr1.txt.gz',
           'test.filterCadd.cadd.chr2.txt'
         ],
@@ -242,7 +242,7 @@ $caddTrack = $config->{tracks}{tracks}[1];
 ok( $caddTrack->{filterCadd_date}, "has non-null filterCadd_date property" );
 
 is_deeply(
-  $caddTrack->{local_files},
+  $caddTrack->{localFiles},
   [
     "test.filterCadd.cadd.chr22.chr22.filtered.txt",
     "test.filterCadd.cadd.chr1.chr1.filtered.txt",

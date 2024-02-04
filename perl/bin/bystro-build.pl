@@ -16,7 +16,7 @@ use DDP;
 use Seq::Build;
 
 my (
-  $yaml_config, $wantedType,      $wantedName, $verbose,
+  $yamlConfig, $wantedType,      $wantedName, $verbose,
   $maxThreads,  $help,            $wantedChr,  $dryRunInsertions,
   $logDir,      $metaOnly,        $debug,      $overwrite,
   $delete,      $regionTrackOnly, $skipCompletionCheck
@@ -25,7 +25,7 @@ my (
 $debug = 0;
 # usage
 GetOptions(
-  'c|config=s'                                => \$yaml_config,
+  'c|config=s'                                => \$yamlConfig,
   't|type|wantedType=s'                       => \$wantedType,
   'n|name|wantedName=s'                       => \$wantedName,
   'v|verbose=i'                               => \$verbose,
@@ -34,12 +34,12 @@ GetOptions(
   'o|overwrite'                               => \$overwrite,
   'chr|wantedChr=s'                           => \$wantedChr,
   'delete'                                    => \$delete,
-  'build_region_track_only'                   => \$regionTrackOnly,
+  'buildRegionTrackOnly|build_region_track_only'                   => \$regionTrackOnly,
   'skipCompletionCheck|skip_completion_check' => \$skipCompletionCheck,
   'dry_run_insertions|dry|dryRun'             => \$dryRunInsertions,
   'log_dir=s'                                 => \$logDir,
   'maxThreads=i'                              => \$maxThreads,
-  'meta_only'                                 => \$metaOnly,
+  'metaOnly'                                 => \$metaOnly,
 );
 
 if ($help) {
@@ -48,7 +48,7 @@ if ($help) {
 }
 
 my %options = (
-  'c|config=s'                                => \$yaml_config,
+  'c|config=s'                                => \$yamlConfig,
   't|type|wantedType=s'                       => \$wantedType,
   'n|name|wantedName=s'                       => \$wantedName,
   'v|verbose=i'                               => \$verbose,
@@ -57,15 +57,15 @@ my %options = (
   'o|overwrite'                               => \$overwrite,
   'chr|wantedChr=s'                           => \$wantedChr,
   'delete'                                    => \$delete,
-  'build_region_track_only'                   => \$regionTrackOnly,
+  'buildRegionTrackOnly|build_region_track_only'                   => \$regionTrackOnly,
   'skipCompletionCheck|skip_completion_check' => \$skipCompletionCheck,
   'dry_run_insertions|dry|dryRun'             => \$dryRunInsertions,
   'log_dir=s'                                 => \$logDir,
   'maxThreads=i'                              => \$maxThreads,
-  'meta_only'                                 => \$metaOnly,
+  'metaOnly'                                 => \$metaOnly,
 );
 
-unless ($yaml_config) {
+unless ($yamlConfig) {
   Pod::Usage::pod2usage();
 }
 
@@ -75,24 +75,24 @@ if ($debug) {
 }
 
 # read config file to determine genome name for log and check validity
-my $config_href = LoadFile($yaml_config);
+my $configHref = LoadFile($yamlConfig);
 
 # get absolute path for YAML file and db_location
-$yaml_config = path($yaml_config)->absolute->stringify;
+$yamlConfig = path($yamlConfig)->absolute->stringify;
 
 my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = localtime();
 
 $year += 1900;
 #   # set log file
 my $log_name =
-     join '.', 'build', $config_href->{assembly}, $wantedType
+     join '.', 'build', $configHref->{assembly}, $wantedType
   || $wantedName
   || 'allTracks', $wantedChr
   || 'allChr',
   "$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
 
 if ( !$logDir ) {
-  $logDir = $config_href->{database_dir};
+  $logDir = $configHref->{database_dir};
 
   # make or silently fail
   path($logDir)->mkpath();
@@ -100,7 +100,7 @@ if ( !$logDir ) {
 my $logPath = path($logDir)->child($log_name)->absolute->stringify;
 
 my $builder_options_href = {
-  config                  => $yaml_config,
+  config                  => $yamlConfig,
   wantedChr               => $wantedChr,
   wantedType              => $wantedType,
   wantedName              => $wantedName,
@@ -108,10 +108,10 @@ my $builder_options_href = {
   debug                   => $debug     || 0,
   logPath                 => $logPath,
   delete                  => !!$delete,
-  build_region_track_only => !!$regionTrackOnly,
+  buildRegionTrackOnly => !!$regionTrackOnly,
   skipCompletionCheck     => !!$skipCompletionCheck,
   dryRun                  => !!$dryRunInsertions,
-  meta_only               => !!$metaOnly,
+  metaOnly               => !!$metaOnly,
   verbose                 => $verbose,
 };
 

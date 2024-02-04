@@ -23,8 +23,8 @@ my $dir = Path::Tiny->tempdir();
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/nearest/test.yml',
   't/tracks/nearest/db/hg19/raw',
-  [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir', $dir->stringify
+  [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir', $dir->stringify
 );
 
 my $baseMapper = Seq::Tracks::Reference::MapBases->new();

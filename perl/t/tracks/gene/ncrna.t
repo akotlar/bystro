@@ -26,8 +26,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file =
   PrepareConfigWithTempdirs( 't/tracks/gene/ncrna.yml',
-  't/tracks/gene/db/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',            $dir->stringify );
+  't/tracks/gene/db/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',            $dir->stringify );
 
 my $baseMapper  = Seq::Tracks::Reference::MapBases->new();
 my $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
@@ -50,7 +50,7 @@ my $refIdx     = $refBuilder->dbName;
 
 my @pos = ( 60950 .. 70966 );
 
-my $file     = $seq->getReadFh( $refBuilder->local_files->[0] );
+my $file     = $seq->getReadFh( $refBuilder->localFiles->[0] );
 my @sequence = <$file>;
 chomp @sequence;
 

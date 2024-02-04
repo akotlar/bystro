@@ -24,8 +24,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/score/integration.yml',
-  't/tracks/score/db/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',             $dir->stringify
+  't/tracks/score/db/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',             $dir->stringify
 );
 
 use Seq::Tracks::Score::Build::Round;
@@ -44,7 +44,7 @@ my $db = Seq::DBManager->new();
 
 $scoreBuilder->buildTrack();
 
-my @localFiles = @{ $scoreBuilder->local_files };
+my @localFiles = @{ $scoreBuilder->localFiles };
 
 # adapted from scorebuilder
 my $headerRegex = qr/^(fixedStep)\s+chrom=(\S+)\s+start=(\d+)\s+step=(\d+)/;

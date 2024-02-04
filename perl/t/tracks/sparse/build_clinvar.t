@@ -31,8 +31,8 @@ my $dir = Path::Tiny->tempdir();
 # prepare temp directory and make test config file
 my $config_file = PrepareConfigWithTempdirs(
   't/tracks/sparse/clinvar-test-config.yml',
-  't/tracks/sparse/raw', [ 'database_dir', 'files_dir', 'temp_dir' ],
-  'files_dir',           $dir->stringify
+  't/tracks/sparse/raw', [ 'database_dir', 'filesDir', 'temp_dir' ],
+  'filesDir',           $dir->stringify
 );
 
 my $mock = MockBuild->new_with_config(

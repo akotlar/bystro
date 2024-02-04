@@ -5,14 +5,14 @@ build_date: 2017-11-27T05:44:00
 chromosomes:
   - chr22
 database_dir: ~
-files_dir: ~
+filesDir: ~
 tracks:
   tracks:
     - type: reference
       name: ref
-      local_files:
+      localFiles:
         - chr22_contrived.fastq
-    - local_files:
+    - localFiles:
         - whole_genome_SNVs.tsv.chr22.organized-by-chr.txt.sorted.29lines.txt
       name: cadd
       type: cadd

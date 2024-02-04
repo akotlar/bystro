@@ -17,7 +17,7 @@ my %baseArgs = (
         type        => 'reference',
         assembly    => 'hg19',
         chromosomes => ['chr1'],
-        files_dir   => 'fglla'
+        filesDir   => 'fglla'
       }
     ]
   },

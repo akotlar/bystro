@@ -20,11 +20,11 @@ my $config = {
   'assembly'     => 'hg38',
   'chromosomes'  => ['chr1'],
   'database_dir' => $db_dir->stringify,
-  'files_dir'    => $raw_dir->stringify,
+  'filesDir'    => $raw_dir->stringify,
   'tracks'       => {
     'tracks' => [
       {
-        'local_files' => [$vcf_path],
+        'localFiles' => [$vcf_path],
         'name'        => 'dbSNP',
         'sorted'      => 1,
         'type'        => 'vcf',

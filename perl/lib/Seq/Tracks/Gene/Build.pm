@@ -54,7 +54,7 @@ my %coordinateTransforms = (
 # has exonStarts_field_name => (is => 'ro', lazy => 1, default => 'txStart' );
 # has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
 
-has build_region_track_only =>
+has buildRegionTrackOnly =>
   ( is => 'ro', isa => 'Bool', coerce => 1, lazy => 1, default => 0 );
 has join => ( is => 'ro', isa => 'HashRef' );
 
@@ -171,7 +171,7 @@ sub buildTrack {
       $visitedChrs{$chr} //= 1;
       # We may want to just update the region track,
       # TODO: Note that this won't store any txErrors
-      if ( $self->build_region_track_only ) {
+      if ( $self->buildRegionTrackOnly ) {
         $self->_writeRegionData( $chr, $regions{$chr} );
 
         if ( $self->join ) {
