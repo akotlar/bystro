@@ -1,4 +1,5 @@
 from enum import Enum
+import queue
 from typing import get_type_hints
 
 from msgspec import Struct, field
@@ -14,8 +15,8 @@ class Event(str, Enum):
     STARTED = "started"
     COMPLETED = "completed"
 
-class BaseMessage(Struct, frozen=True):
-    submissionID: SubmissionID
+class BaseMessage(Struct, frozen=True, rename="camel"):
+    submission_id: SubmissionID
 
     @classmethod
     def keys_with_types(cls) -> dict:
@@ -31,10 +32,10 @@ class FailedJobMessage(BaseMessage, frozen=True):
     reason: str
     event: Event = Event.FAILED
 
-class InvalidJobMessage(Struct, frozen=True):
+class InvalidJobMessage(Struct, frozen=True, rename="camel"):
     # Invalid jobs that are invalid because the submission breaks serialization invariants
     # will not have a submissionID as that ID is held in the serialized data
-    queueID: BeanstalkJobID
+    queue_id: BeanstalkJobID
     reason: str
     event: Event = Event.FAILED
 
