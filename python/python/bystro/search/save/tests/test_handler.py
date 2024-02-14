@@ -1,15 +1,14 @@
-import gzip as gz
 import os
 import tempfile
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 import ray
 
 from bystro.beanstalkd.worker import get_progress_reporter
 from bystro.search.save.handler import _process_query  # Make sure to import your function correctly
-from bystro.search.utils.annotation import DelimitersConfig
 
 
 @pytest.fixture
@@ -51,22 +50,12 @@ def mocked_opensearch_response():
             "total": {"value": 2},
             "hits": [
                 {
-                    "_source": {
-                        "discordant": [[[False]]],
-                        "chrom": [[["chr1"]]],
-                        "pos": [[["100"]]],
-                        "inputRef": [[["A"]]],
-                        "alt": [[["T"]]],
-                    }
+                    "_id": 0,
+                    "fields": {"chrom": ["chr1"], "pos": ["100"], "inputRef": ["A"], "alt": ["T"]},
                 },
                 {
-                    "_source": {
-                        "discordant": [[[False]]],
-                        "chrom": [[["chr2"]]],
-                        "pos": [[["200"]]],
-                        "inputRef": [[["G"]]],
-                        "alt": [[["C"]]],
-                    }
+                    "_id": 1,
+                    "fields": {"chrom": ["chr2"], "pos": ["200"], "inputRef": ["G"], "alt": ["C"]},
                 },
             ],
         }
@@ -82,33 +71,23 @@ def test_process_query(
     instance.search.return_value = mocked_opensearch_response
 
     reporter = get_progress_reporter()
-    delimiters = DelimitersConfig()
-
-    with tempfile.NamedTemporaryFile(delete=False) as temp_output_file:
-        output_chunk_path = temp_output_file.name
 
     with tempfile.NamedTemporaryFile(delete=False) as temp_output_file:
         dosage_chunk_path = temp_output_file.name
 
     result = ray.get(
         _process_query.remote(
-            query_args,
+            [query_args],
             search_client_args,
-            ["chrom", "pos", "inputRef", "alt", "discordant"],
-            None,
-            output_chunk_path,
             reporter,
-            delimiters,
             dosage_matrix_path,
             dosage_chunk_path,
         )
     )
 
-    assert result == 2  # 2 rows in the search response
+    assert result is not None
 
-    with gz.open(output_chunk_path) as f:
-        output_content = f.read()
-        assert output_content == b"chr1\t100\tA\tT\tFalse\nchr2\t200\tG\tC\tFalse\n"
+    assert np.array_equal(result, np.array([0, 1]))  # 2 document ids
 
     dosage_df = pd.read_feather(dosage_chunk_path)
 
@@ -123,5 +102,4 @@ def test_process_query(
     assert dosage_df.loc["chr2:200:G:C", "sample2"] == 2
     assert dosage_df.loc["chr2:200:G:C", "sample3"] == 1
 
-    os.remove(output_chunk_path)
     os.remove(dosage_chunk_path)
