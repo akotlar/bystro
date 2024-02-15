@@ -34,7 +34,7 @@ MAX_SLICES = 1e6
 KEEP_ALIVE = "1d"
 
 # How many scroll requests for each worker to handle
-PARALLEL_SCROLL_CHUNK_INCREMENT = 4
+PARALLEL_SCROLL_CHUNK_INCREMENT = 2
 # Percentage of fetched records to report progress after
 REPORTING_INTERVAL = 0.2
 MINIMUM_RECORDS_TO_ENABLE_REPORTING = 10_000
@@ -46,7 +46,8 @@ ray.init(ignore_reinit_error=True, address="auto")
 
 
 def _clean_query(input_query_body: dict):
-    input_query_body["sort"] = ["_doc"]
+    if "sort" in input_query_body:
+        del input_query_body["sort"]
 
     if "aggs" in input_query_body:
         del input_query_body["aggs"]
@@ -56,6 +57,9 @@ def _clean_query(input_query_body: dict):
 
     if "size" in input_query_body:
         del input_query_body["size"]
+
+    if "track_total_hits" in input_query_body:
+        del input_query_body["track_total_hits"]
 
     return input_query_body
 
