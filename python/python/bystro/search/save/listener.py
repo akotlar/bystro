@@ -3,6 +3,7 @@
     and write submitted queries to disk as valid Bystro annotations
 """
 import argparse
+import asyncio
 
 from ruamel.yaml import YAML
 
@@ -53,7 +54,7 @@ def main():
         search_conf = YAML(typ="safe").load(search_config_file)
 
     def handler_fn(publisher: ProgressPublisher, job_data: SaveJobData):
-        return go(job_data=job_data, search_conf=search_conf, publisher=publisher)
+        return asyncio.run(go(job_data=job_data, search_conf=search_conf, publisher=publisher))
 
     def submit_msg_fn(job_data: SaveJobData):
         return SubmittedJobMessage(submission_id=job_data.submission_id)
