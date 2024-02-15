@@ -7,6 +7,7 @@
 # TODO 2023-05-08: get max_slices from opensearch index settings
 # TODO 2023-05-08: concatenate chunks in a different ray worker
 
+import asyncio
 import logging
 import math
 import os
@@ -15,10 +16,10 @@ import subprocess
 from numpy._typing import NDArray
 
 import numpy as np
-from opensearchpy import OpenSearch
+from opensearchpy import OpenSearch, AsyncOpenSearch
 import pyarrow.compute as pc  # type: ignore
 import pyarrow.dataset as ds  # type: ignore
-from pyarrow.feather import write_feather  # type: ignore
+import pyarrow.ipc as ipc
 import ray
 
 from bystro.beanstalkd.worker import ProgressPublisher, get_progress_reporter
@@ -65,22 +66,21 @@ def _clean_query(input_query_body: dict):
 
 
 @ray.remote
-def _process_query(
-    query_args: list[dict],
-    search_client_args: dict,
-    reporter,  # ray-annotated classes are not supported in mypy yet:
-    dosage_matrix_path: str,
-    filtered_dosage_chunk_path: str,
-) -> NDArray[np.uint32] | None:
-    doc_ids = []
-    loci = []
-    client = OpenSearch(**search_client_args)
+class AsyncQueryProcessor:
+    REPORT_INCREMENT = 40_000
 
-    for query in query_args:
-        resp = client.search(**query)
+    def __init__(self, search_client_args: dict, reporter):
+        # Initialize the async OpenSearch client during actor construction
+        self.client = AsyncOpenSearch(**search_client_args)
+        self.last_reported_count = 0
+        self.reporter = reporter
 
-        if len(resp["hits"]["hits"]) == 0:
-            continue
+    async def process_query(self, query: dict) -> tuple[NDArray[np.uint32] | None, list[str] | None]:
+        doc_ids = []
+        loci = []
+
+        # Perform the search operation asynchronously using the pre-initialized client
+        resp = await self.client.search(**query)
 
         for doc in resp["hits"]["hits"]:
             doc_ids.append(int(doc["_id"]))
@@ -88,19 +88,20 @@ def _process_query(
             src = doc["fields"]
             loci.append(f"{src['chrom'][0]}:{src['pos'][0]}:{src['inputRef'][0]}:{src['alt'][0]}")
 
-    if len(loci) == 0:
-        return None
+        if len(loci) == 0:
+            return None, None
 
-    mask = pc.field("locus").isin(loci)
+        if self.last_reported_count > self.REPORT_INCREMENT:
+            self.reporter.increment.remote(self.last_reported_count)
+            self.last_reported_count = 0
 
-    dosage_matrix = ds.dataset(dosage_matrix_path, format="arrow")
-    dosage_matrix = dosage_matrix.filter(mask).to_table()
+        self.last_reported_count += len(resp["hits"]["hits"])
 
-    write_feather(dosage_matrix, filtered_dosage_chunk_path, compression="zstd")
+        return np.array(doc_ids), loci
 
-    reporter.increment.remote(len(loci))
-
-    return np.array(doc_ids)
+    def close(self):
+        if self.last_reported_count > 0:
+            self.reporter.increment.remote(self.last_reported_count)
 
 
 def _get_num_slices(client, index_name, max_query_size, max_slices, query):
@@ -132,7 +133,14 @@ def _get_num_slices(client, index_name, max_query_size, max_slices, query):
     return max(num_slices_required, 1)
 
 
-def go(  # pylint:disable=invalid-name
+def _prepare_query_body(query, slice_id, num_slices):
+    """Prepare the query body for the slice"""
+    body = query.copy()
+    body["slice"] = {"id": slice_id, "max": num_slices}
+    return body
+
+
+async def go(  # pylint:disable=invalid-name
     job_data: SaveJobData, search_conf: dict, publisher: ProgressPublisher
 ) -> AnnotationOutputs:
     """Main function for running the query and writing the output"""
@@ -149,8 +157,7 @@ def go(  # pylint:disable=invalid-name
     )
     parent_annotation_path = os.path.join(job_data.input_dir, job_data.input_file_names.annotation)
 
-    dosage_out_folder = os.path.join(output_dir, outputs.dosage_matrix_out_path)
-    pathlib.Path(dosage_out_folder).mkdir(parents=True, exist_ok=True)
+    dosage_out_path = os.path.join(output_dir, outputs.dosage_matrix_out_path)
 
     search_client_args = gather_opensearch_args(search_conf)
     client = OpenSearch(**search_client_args)
@@ -158,72 +165,76 @@ def go(  # pylint:disable=invalid-name
     query = _clean_query(job_data.query_body)
     num_slices = _get_num_slices(client, job_data.index_name, MAX_QUERY_SIZE, MAX_SLICES, query)
     pit_id = client.create_point_in_time(index=job_data.index_name, params={"keep_alive": KEEP_ALIVE})["pit_id"]  # type: ignore   # noqa: E501
+
+    reporter = get_progress_reporter(publisher)
+    query["pit"] = {"id": pit_id}
+    query["size"] = MAX_QUERY_SIZE
+    query["fields"] = FIELDS_TO_QUERY
+    query["_source"] = False
+
     try:
-        reporter = get_progress_reporter(publisher)
-        query["pit"] = {"id": pit_id}
-        query["size"] = MAX_QUERY_SIZE
+        # Step 2: Determine the number of CPU cores and spawn actors
+        num_cpus = ray.available_resources().get("CPU", 1)
+        actors = [AsyncQueryProcessor.remote(search_client_args, reporter) for _ in range(int(num_cpus))]
 
-        query["fields"] = FIELDS_TO_QUERY
-        query["_source"] = False
-
-        n_hits = 0
-        dosage_out_chunks: list[str] = []
-        doc_ids = []
+        actor_index = 0
         reqs = []
-        bodies = []
         for slice_id in range(num_slices):
-            body = query.copy()
-            if num_slices > 1:
-                # Slice queries require max > 1
-                body["slice"] = {"id": slice_id, "max": num_slices}
+            # Prepare the query body for this specific slice
+            body = {"body": _prepare_query_body(query, slice_id, num_slices)}
 
-            bodies.append({"body": body})
+            # Select an actor for this task in a round-robin fashion
+            actor = actors[actor_index]
 
-            if len(bodies) == PARALLEL_SCROLL_CHUNK_INCREMENT:
-                chunk_id = len(dosage_out_chunks)
-                dosage_chunk_out = os.path.join(dosage_out_folder, f"{chunk_id}.feather")
-                dosage_out_chunks.append(dosage_chunk_out)
-
-                res = _process_query.remote(
-                    bodies,
-                    search_client_args,
-                    reporter,
-                    parent_dosage_matrix_path,
-                    dosage_chunk_out,
-                )
-
-                reqs.append(res)
-                bodies = []
-
-        if len(bodies) > 0:
-            chunk_id = len(dosage_out_chunks)
-            dosage_chunk_out = os.path.join(dosage_out_folder, f"{chunk_id}.feather")
-            dosage_out_chunks.append(dosage_chunk_out)
-
-            res = _process_query.remote(
-                bodies,
-                search_client_args,
-                reporter,
-                parent_dosage_matrix_path,
-                dosage_chunk_out,
-            )
-
+            # Call process_query for this slice
+            res = actor.process_query.remote(body)
             reqs.append(res)
-            bodies = []
 
-        results_processed = ray.get(reqs)
+            # Move to the next actor for the next slice
+            actor_index = (actor_index + 1) % len(actors)
+        # Step 3: Collect results
+        results = ray.get(reqs)
 
-        for doc_ids_chunk in results_processed:
+        # Report any remaining rows
+        ray.get([actor.close.remote() for actor in actors])
+
+        # results = await asyncio.wait(reqs)
+        # Process and aggregate results from all actors...
+        doc_ids = []
+        loci = []
+        n_hits = 0
+        for doc_ids_chunk, loci_chunk in results:
             if doc_ids_chunk is None:
                 continue
 
             n_hits += doc_ids_chunk.shape[0]
             doc_ids.append(doc_ids_chunk)
+            loci.extend(loci_chunk)
 
         doc_ids_nd = np.concatenate(doc_ids)
         doc_ids_nd.sort()
 
         annotation_path = os.path.join(output_dir, outputs.annotation)
+
+        reporter.message.remote("About to write dosage matrix")  # type: ignore
+
+        dataset = ds.dataset(parent_dosage_matrix_path, format="arrow")
+        mask = pc.field("locus").isin(loci)
+
+        # Use the dataset's scanner to stream batches through a filter
+        scanner = dataset.scanner(filter=mask, use_threads=True)
+
+        # Initialize a RecordBatchFileWriter to write to the specified output path
+        with ipc.RecordBatchFileWriter(
+            dosage_out_path, schema=dataset.schema, options=ipc.IpcWriteOptions(compression="zstd")
+        ) as writer:
+            # Use the scanner to fetch and write record batches directly, applying the mask filter
+            for batch in scanner.to_batches():
+                writer.write_batch(batch)
+
+        reporter.message.remote(  # type: ignore
+            "Fetched document ids and filtered dosage matrix. Filtering annotation & generating stats."
+        )
 
         bgzip_cmd = get_compress_from_pipe_cmd(annotation_path)
         bgzip_decompress_cmd = get_decompress_to_pipe_cmd(parent_annotation_path)
@@ -315,19 +326,10 @@ def go(  # pylint:disable=invalid-name
 
             p.wait()
             stats.wait()
-
-        if p.returncode != 0:
-            print(f"Error: annotation writing command exited with return code {p.returncode}")
-        else:
-            print("Writing completed successfully.")
-
-        if stats.returncode != 0:
-            print(f"Error: stats writing command exited with return code {stats.returncode}")
-        else:
-            print("Stats completed successfully.")
-    except Exception as err:
-        client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore
-        raise IOError(err) from err
+    except Exception as e:
+        # Handle exceptions and cleanup, including deleting the PIT ID
+        client.delete_point_in_time(body={"pit_id": pit_id})
+        raise e
 
     client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore
 

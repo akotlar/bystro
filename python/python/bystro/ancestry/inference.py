@@ -160,8 +160,13 @@ def infer_ancestry(ancestry_model: AncestryModel, genotypes: Dataset) -> Ancestr
     logger.debug("Beginning ancestry inference")
     with Timer() as timer:
         mask = pc.field("locus").isin(ancestry_model.pca_loadings_df.index)
-        genotypes = genotypes.filter(mask).to_table().to_pandas()
+        scanner = genotypes.scanner(filter=mask)
+        # Collect filtered data into a table
+        genotypes = scanner.to_table()
+
+        genotypes = genotypes.to_pandas()
         genotypes = genotypes.set_index("locus")
+
         # TODO: @akotlar 2024-01-31: Replace reliance on imputation with Austin Talbot's model
         # which is robust to missing data.
         missing_rows = list(set(ancestry_model.pca_loadings_df.index) - set(genotypes.index))
