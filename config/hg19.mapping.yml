@@ -444,6 +444,9 @@ mappings:
         CLNHGVS:
           type: text
           analyzer: english_graph
+          fields:
+            exact:
+              type: keyword
         DBVARID:
           type: keyword
           normalizer: lowercase_normalizer
