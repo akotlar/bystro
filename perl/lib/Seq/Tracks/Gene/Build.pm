@@ -502,7 +502,12 @@ sub _writeRegionData {
 
 ############ Joining some other track to Gene track's region db ################
 
-# TODO: Add check to see if values have already been entered
+# TODO 2024-03-14 @akotlar: Currently this join track merge function prevents
+# us from joining non-string values, making it impossible to join a track
+# that splits cell values into a arrays, as we sometimes do with sparse tracks
+# To fix this, we need to change the merge function to handle arrays
+# (or any other type of value) as well as strings
+# by, rather than just concatenating the values, adding them to an array as is
 sub _joinTrackMergeFunc {
   my ( $chr, $pos, $oldVal, $newVal ) = @_;
 
@@ -512,27 +517,14 @@ sub _joinTrackMergeFunc {
   if ( ref $oldVal ) {
     @updated = @$oldVal;
 
-    for my $val ( ref $newVal ? @$newVal : $newVal ) {
-      if ( !defined $val ) {
-        next;
-      }
-
-      push @updated, $val;
-    }
+    push @updated, $newVal;
   }
   else {
     if ( defined $oldVal ) {
       @updated = ($oldVal);
     }
 
-    for my $val ( ref $newVal ? @$newVal : $newVal ) {
-      if ( !defined $val ) {
-        next;
-      }
-
-      # If not array I want to see an error
-      push @updated, $val;
-    }
+    push @updated, $newVal;
   }
 
   # Try to add as little junk as possible
@@ -598,30 +590,6 @@ sub _joinTracksToGeneTrackRegionDb {
 
       my %out;
       foreach ( keys %$hrefToAdd ) {
-        if ( !defined $hrefToAdd->{$_} ) {
-          next;
-        }
-
-        if ( ref $hrefToAdd->{$_} eq 'ARRAY' ) {
-          my @arr;
-          my %uniq;
-          for my $entry ( @{ $hrefToAdd->{$_} } ) {
-            if ( !defined $entry ) {
-              next;
-            }
-
-            if ( $uniq{$entry} ) {
-              next;
-            }
-
-            push @arr, $entry;
-            $uniq{$entry} = 1;
-          }
-
-          # Don't add empty arrays to the database
-          $hrefToAdd->{$_} = @arr ? \@arr : undef;
-        }
-
         if ( defined $hrefToAdd->{$_} ) {
           # Our LMDB writer requires a value, so only add to our list of db entries
           # to update if we have a value
