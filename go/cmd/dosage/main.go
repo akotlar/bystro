@@ -44,7 +44,9 @@ func processFile(ipcFileWriter *ipc.FileWriter, filePath string, pool memory.All
 
 	r, err := ipc.NewFileReader(file, ipc.WithAllocator(pool))
 	if err != nil {
-		log.Fatalf("could not create file reader for %s: %w", filePath, err)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		return err
 	}
 	defer r.Close()

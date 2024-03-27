@@ -514,7 +514,7 @@ sub annotateFile {
     # Nor can we yet combine them if they have different sample lists
     if ( !$allSampleListsIdentical ) {
       my $humanErr =
-        "Bystro currently requires identical samples per input file. Different sample lists found";
+        "When combining VCFs or SNP files, Bystro currently requires that all input files have the sample columns, in the same order. Different samples were found in the input files.";
       $self->_errorWithCleanup($humanErr);
       return ( $humanErr, undef );
     }
