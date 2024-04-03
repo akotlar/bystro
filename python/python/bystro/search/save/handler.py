@@ -165,6 +165,107 @@ def _correct_loci_case(loci):
     return corrected_loci
 
 
+@ray.remote
+def filter_dosage_matrix(
+    parent_dosage_matrix_path: str,
+    n_hits: int,
+    loci: list[str],
+    output_dir: str,
+    basename: str,
+    dosage_out_path: str,
+    reporter,
+    reporting_interval: int,
+    report_progress: bool,
+) -> int | None:
+    reporter.message.remote("Beginning filtering dosage matrix.")  # type: ignore
+
+    # Filter the dosage matrix, if it has rows
+    if not os.path.exists(parent_dosage_matrix_path) or os.stat(parent_dosage_matrix_path).st_size == 0:
+        return None
+
+    loci = _correct_loci_case(loci)
+    # Write requested loci to disk for logging purposes
+    with open(os.path.join(output_dir, f"{basename}_loci.txt"), "w") as loci_fh:
+        for locus in loci:
+            loci_fh.write(locus + "\n")
+
+    pool = pa.default_memory_pool()
+
+    with Timer() as timer:
+        dataset = ds.dataset(parent_dosage_matrix_path, format="arrow")
+        mask = pc.field("locus").isin(loci)
+
+        # Use the dataset's scanner to stream batches through a filter
+        scanner = dataset.scanner(
+            filter=mask,
+            use_threads=True,
+            batch_size=SAVE_FILTER_BATCH_READ_SIZE,
+            batch_readahead=SAVE_FILTER_BATCH_READAHEAD,
+            fragment_readahead=0,
+            memory_pool=pool,
+        )
+
+        # Initialize a RecordBatchFileWriter to write to the specified output path
+        total_since_last_mentioned = 0
+        total_rows_filtered = 0
+
+        with ipc.RecordBatchFileWriter(
+            dosage_out_path,
+            schema=dataset.schema,
+            options=ipc.IpcWriteOptions(compression="zstd"),
+        ) as writer:
+            report_chunk_start_time = time.time()
+            for batch in scanner.to_batches():
+                # The scanner filters in-memory after it reads a batch of rows
+                # of size SAVE_FILTER_BATCH_READ_SIZE, so we may have far fewer
+                # than SAVE_FILTER_BATCH_READ_SIZE rows here, including 0
+                # TODO: 2024-04-03 @akotlar: Remove this once confirmed not needed
+                if batch.num_rows == 0:
+                    continue
+
+                writer.write_batch(batch)
+
+                total_rows_filtered += batch.num_rows
+                total_since_last_mentioned += batch.num_rows
+
+                if report_progress and total_since_last_mentioned >= reporting_interval:
+                    reporter.message.remote(  # type: ignore
+                        (f"Dosage: filtered {total_rows_filtered} of {n_hits} rows.")
+                    )
+
+                    logger.debug(
+                        "Time to filter %d dosage matrix rows (total: %d): %s",
+                        total_since_last_mentioned,
+                        total_rows_filtered,
+                        time.time() - report_chunk_start_time,
+                    )
+
+                    total_since_last_mentioned = 0
+                    report_chunk_start_time = time.time()
+
+                # TODO: 2024-04-03 @akotlar: Remove this once confirmed not needed
+                if total_rows_filtered >= n_hits:
+                    break
+
+        if report_progress and total_since_last_mentioned > 0:
+            reporter.message.remote(  # type: ignore
+                (f"Dosage: filtered {total_rows_filtered} of {n_hits}) rows.")
+            )
+
+            total_since_last_mentioned = 0
+
+        logger.debug(
+            "Memory usage after genotype filtering: %s (MB)",
+            psutil.Process(os.getpid()).memory_info().rss / 1024**2,
+        )
+
+        reporter.message.remote("Dosage: filtering completed.")  # type: ignore
+
+    logger.info("Filtering dosage matrix took %s seconds", timer.elapsed_time)
+
+    return total_rows_filtered
+
+
 async def go(  # pylint:disable=invalid-name
     job_data: SaveJobData, search_conf: dict, publisher: ProgressPublisher
 ) -> AnnotationOutputs:
@@ -259,7 +360,12 @@ async def go(  # pylint:disable=invalid-name
             doc_ids_nd.sort()
 
         logger.info("Concatenating document ids took %s seconds", timer.elapsed_time)
+    except Exception as e:
+        raise RuntimeError("Failed to query OpenSearch") from e
+    finally:
+        client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore
 
+    try:
         logger.info(
             "Memory usage before genotype filtering: %s (MB)",
             psutil.Process(os.getpid()).memory_info().rss / 1024**2,
@@ -277,89 +383,19 @@ async def go(  # pylint:disable=invalid-name
                 f"Reporting filtering progress every {reporting_interval} records."
             )
 
-        # Filter the dosage matrix, if it has rows
-        if os.path.exists(parent_dosage_matrix_path) and os.stat(parent_dosage_matrix_path).st_size > 0:
-            loci = _correct_loci_case(loci)
-            # Write requested loci to disk for logging purposes
-            with open(os.path.join(output_dir, f"{basename}_loci.txt"), "w") as loci_fh:
-                for locus in loci:
-                    loci_fh.write(locus + "\n")
+        dosage_matrix_filter_res = filter_dosage_matrix.remote(
+            parent_dosage_matrix_path,
+            n_hits,
+            loci,
+            output_dir,
+            basename,
+            dosage_out_path,
+            reporter,
+            reporting_interval,
+            report_progress,
+        )
 
-            pool = pa.default_memory_pool()
-            with Timer() as timer:
-                dataset = ds.dataset(parent_dosage_matrix_path, format="arrow")
-                mask = pc.field("locus").isin(loci)
-
-                # Use the dataset's scanner to stream batches through a filter
-                scanner = dataset.scanner(
-                    filter=mask,
-                    use_threads=True,
-                    batch_size=SAVE_FILTER_BATCH_READ_SIZE,
-                    batch_readahead=SAVE_FILTER_BATCH_READAHEAD,
-                    fragment_readahead=0,
-                    memory_pool=pool,
-                )
-
-                # Initialize a RecordBatchFileWriter to write to the specified output path
-                with ipc.RecordBatchFileWriter(
-                    dosage_out_path,
-                    schema=dataset.schema,
-                    options=ipc.IpcWriteOptions(compression="zstd"),
-                ) as writer:
-                    total_since_last_mentioned = 0
-                    total_rows_filtered = 0
-
-                    report_chunk_start_time = time.time()
-                    for batch in scanner.to_batches():
-                        # The scanner filters in-memory after it reads a batch of rows
-                        # of size SAVE_FILTER_BATCH_READ_SIZE, so we may have far fewer
-                        # than SAVE_FILTER_BATCH_READ_SIZE rows here, including 0
-                        # TODO: 2024-04-03 @akotlar: Remove this once confirmed not needed
-                        if batch.num_rows == 0:
-                            continue
-
-                        writer.write_batch(batch)
-
-                        total_rows_filtered += batch.num_rows
-                        total_since_last_mentioned += batch.num_rows
-
-                        if report_progress and total_since_last_mentioned >= reporting_interval:
-                            reporter.message.remote(  # type: ignore
-                                (f"Dosage: filtered and wrote {total_rows_filtered} of {n_hits} rows.")
-                            )
-
-                            logger.debug(
-                                "Time to filter %d dosage matrix rows (total: %d): %s",
-                                total_since_last_mentioned,
-                                total_rows_filtered,
-                                time.time() - report_chunk_start_time,
-                            )
-
-                            total_since_last_mentioned = 0
-                            report_chunk_start_time = time.time()
-
-                        # TODO: 2024-04-03 @akotlar: Remove this once confirmed not needed
-                        if total_rows_filtered >= n_hits:
-                            break
-
-                if report_progress and total_since_last_mentioned > 0:
-                    reporter.message.remote(  # type: ignore
-                        (f"Dosage: filtered and wrote {total_rows_filtered} of {n_hits}) rows.")
-                    )
-
-                    total_since_last_mentioned = 0
-
-                logger.debug(
-                    "Memory usage after genotype filtering: %s (MB)",
-                    psutil.Process(os.getpid()).memory_info().rss / 1024**2,
-                )
-
-                reporter.message.remote(  # type: ignore
-                    "Filtered dosage matrix written. Filtering annotation & generating stats."
-                )
-
-            logger.info("Filtering dosage matrix took %s seconds", timer.elapsed_time)
-
+        # Filter annotations
         with Timer() as timer:
             bgzip_cmd = get_compress_from_pipe_cmd(annotation_path)
             bgzip_decompress_cmd = get_decompress_to_pipe_cmd(parent_annotation_path)
@@ -421,10 +457,7 @@ async def go(  # pylint:disable=invalid-name
                                 and current_target_index % reporting_interval == 0
                             ):
                                 reporter.message.remote(  # type: ignore
-                                    (
-                                        "Annotation/stats: Filtered & wrote "
-                                        f"{current_target_index} of {n_hits} rows."
-                                    )
+                                    f"Annotation: filtered {current_target_index} of {n_hits} rows."
                                 )
 
                             p.stdin.write(line)
@@ -436,12 +469,9 @@ async def go(  # pylint:disable=invalid-name
                         if current_target_index >= n_hits:
                             if report_progress:
                                 reporter.message.remote(  # type: ignore
-                                    (
-                                        "Annotation/stats: Filtered & wrote "
-                                        f"{current_target_index} of {n_hits} rows."
-                                    )
+                                    f"Annotation: filtered {current_target_index} of {n_hits} rows."
                                 )
-                            reporter.message.remote("Done, cleaning up.")  # type: ignore
+                            reporter.message.remote("Annotation: finished filtering.")  # type: ignore
                             break
 
                 p.stdin.close()  # Close the stdin to signal that we're done sending input
@@ -449,12 +479,21 @@ async def go(  # pylint:disable=invalid-name
 
                 p.wait()
                 stats.wait()
-        logger.info("Filtering annotation and stats took %s seconds", timer.elapsed_time)
+
+        logger.info("Filtering annotation and generating statistics took %s seconds", timer.elapsed_time)
+
+        # Wait for dosage matrix filtering to finish
+        total_rows_filtered = ray.get(dosage_matrix_filter_res)
+
+        if total_rows_filtered is not None:
+            logger.info("Filtered %d rows from the dosage matrix", total_rows_filtered)
+
+        logger.info("Finished filtering in %s seconds", timer.elapsed_time)
+        reporter.message.remote(  # type: ignore
+            "Finished filtering dosage matrix, annotations, and statistics."
+        )
+
+        return outputs
+
     except Exception as e:
-        # Handle exceptions and cleanup, including deleting the PIT ID
-        client.delete_point_in_time(body={"pit_id": pit_id})
-        raise e
-
-    client.delete_point_in_time(body={"pit_id": pit_id})  # type: ignore
-
-    return outputs
+        raise RuntimeError("Failed to filter dosage matrix and annotation") from e
