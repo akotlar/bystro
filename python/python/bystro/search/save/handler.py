@@ -147,7 +147,6 @@ class AsyncQueryProcessor:
             )
             self.last_reported_count = 0
 
-
 def _get_num_slices(client, index_name, max_query_size, max_slices, query) -> tuple[int, int]:
     """Count number of hits for the index"""
     query_no_sort = query.copy()
@@ -348,6 +347,116 @@ def filter_annotation(
     loci_file_path: str,
 ):
     reporting_interval = max(ANNOTATION_MINIMUM_REPORTING_INTERVAL, reporting_interval)
+
+    search_client_args = gather_opensearch_args(search_conf)
+    client = OpenSearch(**search_client_args)
+
+    query = _clean_query(job_data.query_body)
+    num_slices, num_docs = _get_num_slices(
+        client, job_data.index_name, MAX_QUERY_SIZE, MAX_SLICES, query
+    )
+    pit_id = client.create_point_in_time(index=job_data.index_name, params={"keep_alive": KEEP_ALIVE})["pit_id"]  # type: ignore   # noqa: E501
+
+    update_interval = max(MINIMUM_RECORDS_TO_ENABLE_REPORTING, math.ceil(num_docs * REPORTING_INTERVAL))
+    reporter = get_progress_reporter(publisher, update_interval)
+
+    reporter.message.remote(  # type: ignore
+        f"Fetching variants from search engine, Reporting progress every ~{update_interval} variants."
+    )
+
+    query["pit"] = {"id": pit_id}
+    query["size"] = MAX_QUERY_SIZE
+    query["fields"] = FIELDS_TO_QUERY
+    query["_source"] = False
+
+    logger.info(
+        "Memory usage before querying: %s (MB)",
+        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
+    )
+
+    try:
+        num_cpus = ray.available_resources().get("CPU", 1)
+
+        actor_index = 0
+
+        # slice api requires more than 1 slice
+        actor_constructor = AsyncQueryProcessor.options(  # type: ignore
+            max_concurrency=MAX_CONCURRENCY_PER_THREAD
+        )
+
+        with Timer() as timer:
+            if num_slices == 1:
+                actor = actor_constructor.remote(search_client_args, reporter)  # type: ignore
+
+                results = ray.get([actor.process_query.remote({"body": query})])
+
+                # Report any remaining rows
+                ray.get(actor.close.remote())
+            else:
+                actors = []
+                reqs = []
+                for _ in range(int(num_cpus)):
+                    actors.append(actor_constructor.remote(search_client_args, reporter))  # type: ignore
+
+                for slice_id in range(num_slices):
+
+                    # Prepare the query body for this specific slice
+                    body = {"body": _prepare_query_body(query, slice_id, num_slices)}
+
+                    # Select an actor for this task in a round-robin fashion
+                    actor = actors[actor_index]
+
+                    # Call process_query for this slice
+                    res = actor.process_query.remote(body)
+                    reqs.append(res)
+
+                    # Move to the next actor for the next slice
+                    actor_index = (actor_index + 1) % len(actors)
+
+                results = ray.get(reqs)
+                ray.get([actor.close.remote() for actor in actors])
+                for actor in actors:
+                    ray.kill(actor)
+                    del actor
+                del actors
+                del reqs
+                logger.info("Deleted and terminated ray actors")        
+    finally:
+        # Cleanup the PIT ID
+        client.delete_point_in_time(body={"pit_id": pit_id})
+        client.close()
+
+    reporter.increment_and_write_progress_message.remote(  # type: ignore
+        0, "Fetched", "variants", force=True
+    )
+    reporter.clear_progress.remote()  # type: ignore
+
+    logger.info("Querying took %s seconds", timer.elapsed_time)
+
+    logger.info(
+        "Memory usage before query result sorting: %s (MB)",
+        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
+    )
+
+    doc_ids_sorted, loci_sorted, n_hits = sort_loci_and_doc_ids(results)
+    del results
+    gc.collect()
+    logger.info("Deleted results object after sorting")
+
+    logger.info(
+        "Memory usage after query result sorting: %s (MB)",
+        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
+    )
+
+    if n_hits != num_docs:
+        raise RuntimeError(
+            "Number of hits does not match the number of documents. Expected %d, got %d"
+            % (num_docs, n_hits)
+        )
+
+    reporter.message.remote(  # type: ignore
+        f"OK: The number of fetched variants ({n_hits}) equals the number expected ({num_docs})"
+    )
 
     reporter.message.remote(  # type: ignore
         (
@@ -554,8 +663,7 @@ def filter_annotation_and_dosage_matrix(
         loci_file_path=loci_file_path,
     )
 
-    del doc_ids_sorted
-    del loci_sorted
+    del doc_ids_sorted, loci_sorted
     gc.collect()
 
     logger.info(
@@ -587,113 +695,11 @@ async def go(  # pylint:disable=invalid-name
     job_data: SaveJobData, search_conf: dict, publisher: ProgressPublisher, queue_config_path: str
 ) -> AnnotationOutputs:
     """Main function for running the query and writing the output"""
-    search_client_args = gather_opensearch_args(search_conf)
-    client = OpenSearch(**search_client_args)
-
-    query = _clean_query(job_data.query_body)
-    num_slices, num_docs = _get_num_slices(
-        client, job_data.index_name, MAX_QUERY_SIZE, MAX_SLICES, query
-    )
-    pit_id = client.create_point_in_time(index=job_data.index_name, params={"keep_alive": KEEP_ALIVE})["pit_id"]  # type: ignore   # noqa: E501
-
-    update_interval = max(MINIMUM_RECORDS_TO_ENABLE_REPORTING, math.ceil(num_docs * REPORTING_INTERVAL))
-    reporter = get_progress_reporter(publisher, update_interval)
-
-    reporter.message.remote(  # type: ignore
-        f"Fetching variants from search engine, Reporting progress every ~{update_interval} variants."
-    )
-
-    query["pit"] = {"id": pit_id}
-    query["size"] = MAX_QUERY_SIZE
-    query["fields"] = FIELDS_TO_QUERY
-    query["_source"] = False
-
-    logger.info(
-        "Memory usage before querying: %s (MB)",
-        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
-    )
-
-    try:
-        num_cpus = ray.available_resources().get("CPU", 1)
-
-        actor_index = 0
-        reqs = []
-
-        # slice api requires more than 1 slice
-        actor_constructor = AsyncQueryProcessor.options(  # type: ignore
-            max_concurrency=MAX_CONCURRENCY_PER_THREAD
-        )
-
-        with Timer() as timer:
-            if num_slices == 1:
-                actor = actor_constructor.remote(search_client_args, reporter)  # type: ignore
-
-                results = ray.get([actor.process_query.remote({"body": query})])
-
-                # Report any remaining rows
-                ray.get(actor.close.remote())
-            else:
-                actors = []
-                for _ in range(int(num_cpus)):
-                    actors.append(actor_constructor.remote(search_client_args, reporter))  # type: ignore
-
-                for slice_id in range(num_slices):
-
-                    # Prepare the query body for this specific slice
-                    body = {"body": _prepare_query_body(query, slice_id, num_slices)}
-
-                    # Select an actor for this task in a round-robin fashion
-                    actor = actors[actor_index]
-
-                    # Call process_query for this slice
-                    res = actor.process_query.remote(body)
-                    reqs.append(res)
-
-                    # Move to the next actor for the next slice
-                    actor_index = (actor_index + 1) % len(actors)
-
-                results = ray.get(reqs)
-                ray.get([actor.close.remote() for actor in actors])
-    finally:
-        # Cleanup the PIT ID
-        client.delete_point_in_time(body={"pit_id": pit_id})
-        client.close()
-
-    reporter.increment_and_write_progress_message.remote(  # type: ignore
-        0, "Fetched", "variants", force=True
-    )
-    reporter.clear_progress.remote()  # type: ignore
-
-    logger.info("Querying took %s seconds", timer.elapsed_time)
-
-    logger.info(
-        "Memory usage before query result sorting: %s (MB)",
-        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
-    )
-
-    doc_ids_sorted, loci_sorted, n_hits = sort_loci_and_doc_ids(results)
-
-    logger.info(
-        "Memory usage after query result sorting: %s (MB)",
-        psutil.Process(os.getpid()).memory_info().rss / 1024**2,
-    )
-
-    if n_hits != num_docs:
-        raise RuntimeError(
-            "Number of hits does not match the number of documents. Expected %d, got %d"
-            % (num_docs, n_hits)
-        )
-
-    reporter.message.remote(  # type: ignore
-        f"OK: The number of fetched variants ({n_hits}) equals the number expected ({num_docs})"
-    )
-
+    
     outputs = filter_annotation_and_dosage_matrix(
         job_data=job_data,
-        reporter=reporter,
-        doc_ids_sorted=doc_ids_sorted,
-        loci_sorted=loci_sorted,
-        n_hits=n_hits,
+        search_conf=search_conf,
+        publisher=publisher,
         queue_config_path=queue_config_path,
     )
 
