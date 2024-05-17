@@ -55,10 +55,10 @@ def _extract_samples(samples):
 def _get_samples_genes_dosages_from_hit(hit: dict[str, Any]) -> pd.DataFrame:
     """Given a document hit, return a dataframe of samples, genes and dosages."""
     source = hit["_source"]
-    chrom = _flatten(source["chrom"])[0]
-    pos = _flatten(source["pos"])[0]
-    ref = _flatten(source["ref"])[0]
-    alt = _flatten(source["alt"])[0]
+    chrom = source["chrom"][0][0][0]
+    pos = source["pos"][0][0][0]
+    ref = source["inputRef"][0][0][0]
+    alt = source["alt"][0][0][0]
     unique_gene_names = set(_flatten(source["refSeq"]["name2"]))
     # homozygotes, heterozygotes may not be present in response, so
     # represent them as empty lists if not.
