@@ -37,6 +37,7 @@ dependencies = [
     "somadata==1.0.0",
     "statsmodels==0.14.2",
     "nest-asyncio==1.6.0",
+    "aiofiles==23.2.1",
 ]
 
 [tool.maturin]

@@ -3,8 +3,9 @@
 import copy
 import logging
 import math
+import psutil
 from typing import Any, Callable
-
+import json
 import asyncio
 
 from msgspec import Struct
@@ -582,7 +583,7 @@ class OpenSearchQueryConfig(Struct):
     keep_alive: str = ONE_DAY
 
 
-OPENSEARCH_QUERY_CONFIG = OpenSearchQueryConfig()
+OPENSEARCH_QUERY_CONFIG = OpenSearchQueryConfig(max_query_size=2_000)
 
 
 def _flatten(xs: Any) -> list[Any]:
@@ -648,6 +649,9 @@ async def execute_query(
     """
     results: list[dict] = []
     search_after = None  # Initialize search_after for pagination
+    
+    # get memory usage before
+    print("before query", psutil.Process().memory_info().rss / 1e6)  # in bytes 
 
     if explode_field is not None:
         if fields is not None and explode_field not in fields:
@@ -680,7 +684,7 @@ async def execute_query(
 
         # Update search_after to the sort value of the last document retrieved
         search_after = resp["hits"]["hits"][-1]["sort"]
-
+        print("results: ", len(results), "memory: ", psutil.Process().memory_info().rss / 1e6, "object memory size", sys.getsizeof(results) / 1e6)  # in bytes
     return process_query_response(
         results,
         fields,
@@ -754,6 +758,8 @@ def process_query_response(
         pd.DataFrame: A DataFrame of query results.
     """
     num_hits = len(hits)
+
+    print("before munging, memory: ", psutil.Process().memory_info().rss / 1e6)
 
     if num_hits == 0:
         return pd.DataFrame()
@@ -892,6 +898,8 @@ def process_query_response(
         if col in DEFAULT_COLUMN_TYPES:
             known_dtypes[col] = DEFAULT_COLUMN_TYPES[col]
 
+
+    print("after munging, memory: ", psutil.Process().memory_info().rss / 1e6)
     return df[cols]
 
 
@@ -1139,6 +1147,7 @@ async def async_get_annotation_result_from_query(
         query_string, fields=fields, melt_samples=melt_samples
     )
 
+    print("query", query)
     return await async_run_annotation_query(
         query,
         index_name,
