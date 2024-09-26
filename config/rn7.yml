@@ -1,0 +1,111 @@
+---
+assembly: rn7
+build_author: alexkotlar
+build_date: 2024-09-25T23:33:00
+chromosomes:
+  - chr1
+  - chr2
+  - chr3
+  - chr4
+  - chr5
+  - chr6
+  - chr7
+  - chr8
+  - chr9
+  - chr10
+  - chr11
+  - chr12
+  - chr13
+  - chr14
+  - chr15
+  - chr16
+  - chr17
+  - chr18
+  - chr19
+  - chr20
+  - chrM
+  - chrX
+database_dir: /mnt/annotator/rn7
+fileProcessors:
+  snp:
+    args: --emptyField NA --minGq .95
+    program: bystro-snp
+  vcf:
+    args:
+      --emptyField NA --sample %sampleList% --keepPos --keepId --dosageOutput
+      %dosageMatrixOutPath%
+    program: bystro-vcf
+files_dir: /mnt/files1/bystro_annotator/raw_files/rn7
+statistics:
+  dbSNPnameField: dbSNP.name
+  exonicAlleleFunctionField: refSeq.exonicAlleleFunction
+  outputExtensions:
+    json: .statistics.json
+    qc: .statistics.qc.tsv
+    tab: .statistics.tsv
+  programPath: bystro-stats
+  refTrackField: ref
+  siteTypeField: refSeq.siteType
+temp_dir: "~"
+tracks:
+  outputOrder:
+    - ref
+    - refSeq
+    - nearest.refSeq
+    - nearestTss.refSeq
+  tracks:
+    - build_author: alexkotlar
+      build_date: 2024-09-25T23:33:00
+      local_files:
+        - rn7.fa.gz
+      name: ref
+      type: reference
+      utils:
+        - args:
+            remoteDir: http://hgdownload.cse.ucsc.edu/goldenPath/rn7/bigZips/
+            remoteFiles:
+              - rn7.fa.gz
+          completed: 2024-09-25T23:30:00
+          name: fetch
+      version: 1
+    - build_author: alexkotlar
+      build_date: 2024-09-25T23:33:00
+      features:
+        - name
+        - name2
+      local_files:
+        - rn7.refGene.fetch.gz
+      name: refSeq
+      type: gene
+      utils:
+        - args:
+            connection:
+              database: rn7
+            sql: SELECT * FROM rn7.refGene
+          completed: 2024-09-25T23:31:00
+          name: fetch
+      version: 1
+    - build_author: alexkotlar
+      build_date: 2024-09-25T23:33:00
+      dist: true
+      features:
+        - name2
+        - name
+      from: txStart
+      name: nearest.refSeq
+      ref: refSeq
+      to: txEnd
+      type: nearest
+      version: 14
+    - build_author: alexkotlar
+      build_date: 2024-09-25T23:33:00
+      dist: true
+      features:
+        - name2
+        - name
+      from: txStart
+      name: nearestTss.refSeq
+      ref: refSeq
+      type: nearest
+      version: 9
+version: 1
