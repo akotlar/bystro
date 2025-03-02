@@ -1,0 +1,13 @@
+[package]
+name = "bystro"
+version = "2.0.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "bystro"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.21.2", features = ["extension-module"] }
